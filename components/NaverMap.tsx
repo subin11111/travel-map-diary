@@ -1,7 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 
 type VisitStyle = {
@@ -16,6 +17,13 @@ type SelectedDong = {
   dongCode: string;
   dongName: string;
   visitCount: number;
+};
+
+type VisitStats = {
+  visitedDongCount: number;
+  totalVisitCount: number;
+  topDongName: string | null;
+  topVisitCount: number;
 };
 
 type DongDiary = {
@@ -133,8 +141,23 @@ export default function NaverMap() {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const photoPreviewUrlRef = useRef<string | null>(null);
   const mapInitializedRef = useRef(false);
+  const mapDataLoadedRef = useRef(false);
+  const polygonGroupsRef = useRef(new Map<string, NaverPolygonInstance[]>());
+  const visitCountByDongRef = useRef(new Map<string, number>());
+  const dongNameByCodeRef = useRef(new Map<string, string>());
+  const authUserRef = useRef<User | null>(null);
+  const clickPulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
+  const [isTimelineOpen, setIsTimelineOpen] = useState(false);
 
   const [selectedDong, setSelectedDong] = useState<SelectedDong | null>(null);
+  const [hoveredDongName, setHoveredDongName] = useState<string | null>(null);
   const [diaries, setDiaries] = useState<DongDiary[]>([]);
   const [isLoadingDiaries, setIsLoadingDiaries] = useState(false);
   const [isSavingDiary, setIsSavingDiary] = useState(false);
@@ -145,20 +168,173 @@ export default function NaverMap() {
   const [photoLink, setPhotoLink] = useState("");
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [photoInputKey, setPhotoInputKey] = useState(0);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [visitStats, setVisitStats] = useState<VisitStats>({
+    visitedDongCount: 0,
+    totalVisitCount: 0,
+    topDongName: null,
+    topVisitCount: 0,
+  });
+
+  useEffect(() => {
+    authUserRef.current = authUser;
+  }, [authUser]);
+
+  const applyPolygonStyle = useCallback((dongCode: string, style: VisitStyle, zIndex: number) => {
+    const polygonGroup = polygonGroupsRef.current.get(dongCode);
+
+    polygonGroup?.forEach((polygon) => {
+      polygon.setOptions({
+        ...style,
+        zIndex,
+      });
+    });
+  }, []);
+
+  const clearClickPulse = useCallback((dongCode: string, visitCount: number) => {
+    applyPolygonStyle(dongCode, getVisitStyle(visitCount), visitCount > 0 ? 100 : 10);
+  }, [applyPolygonStyle]);
+
+  function setHoverLabel(name: string | null) {
+    setHoveredDongName(name);
+  }
+
+  const resetUserScopedMapState = useCallback(() => {
+    visitCountByDongRef.current.clear();
+    dongNameByCodeRef.current.clear();
+
+    polygonGroupsRef.current.forEach((_, dongCode) => {
+      applyPolygonStyle(dongCode, getVisitStyle(0), 10);
+    });
+
+    setVisitStats({
+      visitedDongCount: 0,
+      totalVisitCount: 0,
+      topDongName: null,
+      topVisitCount: 0,
+    });
+  }, [applyPolygonStyle]);
+
+  const syncUserScopedMapState = useCallback(async (currentUser: User | null) => {
+    setSelectedDong(null);
+    setIsModalOpen(false);
+    if (photoPreviewUrlRef.current) {
+      URL.revokeObjectURL(photoPreviewUrlRef.current);
+      photoPreviewUrlRef.current = null;
+    }
+    setPhotoFile(null);
+    setPhotoPreviewUrl(null);
+    setPhotoInputKey((current) => current + 1);
+    if (photoInputRef.current) {
+      photoInputRef.current.value = "";
+    }
+    setDiaryTitle("");
+    setDiaryContent("");
+    setPhotoLink("");
+
+    if (!currentUser) {
+      resetUserScopedMapState();
+      setDiaries([]);
+      setHoveredDongName(null);
+      return;
+    }
+
+    const visitCountMap = new Map<string, number>();
+    const dongNameMap = new Map<string, string>();
+
+    const { data: visitedPlaces, error } = await supabase
+      .from("visited_places")
+      .select("dong_code, dong_name, visit_count")
+      .eq("user_id", currentUser.id);
+
+    if (error) {
+      console.error("Failed to load visited places:", error);
+      setStatusMessage("방문 기록을 불러오지 못했습니다.");
+      return;
+    }
+
+    visitedPlaces?.forEach((place) => {
+      const count = place.visit_count ?? 1;
+      visitCountMap.set(place.dong_code, count);
+      dongNameMap.set(place.dong_code, place.dong_name);
+    });
+
+    visitCountByDongRef.current = visitCountMap;
+    dongNameByCodeRef.current = dongNameMap;
+
+    const visitedDongCount = visitedPlaces?.length ?? 0;
+    const totalVisitCount = (visitedPlaces ?? []).reduce(
+      (sum, place) => sum + (place.visit_count ?? 1),
+      0
+    );
+    const topVisitedPlace = (visitedPlaces ?? []).reduce(
+      (top, place) => ((place.visit_count ?? 1) > (top?.visit_count ?? 0) ? place : top),
+      visitedPlaces?.[0] ?? null
+    );
+
+    setVisitStats({
+      visitedDongCount,
+      totalVisitCount,
+      topDongName: topVisitedPlace ? dongNameMap.get(topVisitedPlace.dong_code) ?? topVisitedPlace.dong_name : null,
+      topVisitCount: topVisitedPlace?.visit_count ?? 0,
+    });
+
+    polygonGroupsRef.current.forEach((_, dongCode) => {
+      const count = visitCountMap.get(dongCode) ?? 0;
+      applyPolygonStyle(dongCode, getVisitStyle(count), count > 0 ? 100 : 10);
+    });
+  }, [applyPolygonStyle, resetUserScopedMapState]);
 
   useEffect(() => {
     return () => {
       if (photoPreviewUrlRef.current) {
         URL.revokeObjectURL(photoPreviewUrlRef.current);
       }
+
+      if (clickPulseTimerRef.current) {
+        clearTimeout(clickPulseTimerRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function initializeAuth() {
+      const { data } = await supabase.auth.getSession();
+
+      if (!isMounted) return;
+
+      const currentUser = data.session?.user ?? null;
+      setAuthUser(currentUser);
+      void syncUserScopedMapState(currentUser);
+      setAuthLoading(false);
+    }
+
+    void initializeAuth();
+
+    const {
+      data: authListener,
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      const currentUser = session?.user ?? null;
+      setAuthUser(currentUser);
+      void syncUserScopedMapState(currentUser);
+      setAuthLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, [syncUserScopedMapState]);
+
+
 
   useEffect(() => {
     let isActive = true;
 
     async function loadDiaries() {
-      if (!selectedDong) {
+      if (!selectedDong || !authUser) {
         setDiaries([]);
         return;
       }
@@ -171,6 +347,7 @@ export default function NaverMap() {
           .from("dong_diaries")
           .select("id, dong_code, dong_name, title, content, photo_url, created_at")
           .eq("dong_code", selectedDong.dongCode)
+          .eq("user_id", authUser.id)
           .order("created_at", { ascending: false });
 
         if (!isActive) return;
@@ -183,7 +360,7 @@ export default function NaverMap() {
         try {
           // Some error objects are non-enumerable; log full properties when possible
           console.error("Error details:", JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
-        } catch (e) {
+        } catch {
           // ignore stringify errors
         }
 
@@ -199,7 +376,7 @@ export default function NaverMap() {
     return () => {
       isActive = false;
     };
-  }, [selectedDong]);
+  }, [selectedDong, authUser]);
 
   useEffect(() => {
     let cancelled = false;
@@ -228,19 +405,12 @@ export default function NaverMap() {
       });
 
       async function loadMap() {
-        const visitCountMap = new Map<string, number>();
-
-        const { data: visitedPlaces, error } = await supabase
-          .from("visited_places")
-          .select("dong_code, visit_count");
-
-        if (error) {
-          console.error("Failed to load visited places:", error);
-        } else {
-          visitedPlaces?.forEach((place) => {
-            visitCountMap.set(place.dong_code, place.visit_count ?? 1);
-          });
+        if (mapDataLoadedRef.current) {
+          return;
         }
+
+        mapDataLoadedRef.current = true;
+        polygonGroupsRef.current.clear();
 
         const res = await fetch("/geo/seoul-dong.json");
         const geojson = (await res.json()) as GeoJsonCollection;
@@ -248,7 +418,7 @@ export default function NaverMap() {
         geojson.features.forEach((feature) => {
           const dongCode = feature.properties.EMD_CD;
           const dongName = feature.properties.EMD_NM;
-          const visitCount = visitCountMap.get(dongCode) ?? 0;
+          const visitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
           const geometry = feature.geometry;
 
           if (geometry.type === "Polygon") {
@@ -269,8 +439,6 @@ export default function NaverMap() {
         dongName: string,
         initialVisitCount: number
       ) {
-        let currentVisitCount = initialVisitCount;
-
         const paths = coords[0].map(
           ([lng, lat]: number[]) => new naverApi.maps.LatLng(lat, lng)
         );
@@ -279,38 +447,51 @@ export default function NaverMap() {
           map,
           paths,
           clickable: true,
-          zIndex: currentVisitCount > 0 ? 100 : 10,
-          ...getVisitStyle(currentVisitCount),
+          zIndex: initialVisitCount > 0 ? 100 : 10,
+          ...getVisitStyle(initialVisitCount),
         });
 
-        naverApi.maps.Event.addListener(polygon, "click", async () => {
-          const nextVisitCount = currentVisitCount + 1;
+        const existingGroup = polygonGroupsRef.current.get(dongCode) ?? [];
+        existingGroup.push(polygon);
+        polygonGroupsRef.current.set(dongCode, existingGroup);
 
-          const { error } = await supabase.from("visited_places").upsert(
-            {
-              dong_code: dongCode,
-              dong_name: dongName,
-              visit_count: nextVisitCount,
-            },
-            {
-              onConflict: "dong_code",
-            }
-          );
+        naverApi.maps.Event.addListener(polygon, "mouseover", () => {
+          setHoverLabel(dongName);
+        });
 
-          if (error) {
-            console.error("Save failed:", error);
-            alert("저장 실패: 콘솔을 확인하세요.");
+        naverApi.maps.Event.addListener(polygon, "mouseout", () => {
+          setHoverLabel(null);
+        });
+
+        naverApi.maps.Event.addListener(polygon, "click", () => {
+          const currentUser = authUserRef.current;
+
+          if (!currentUser) {
+            setStatusMessage("로그인 후 개인 기록을 남길 수 있습니다.");
             return;
           }
 
-          currentVisitCount = nextVisitCount;
-          setSelectedDong({ dongCode, dongName, visitCount: nextVisitCount });
-          setStatusMessage(`${dongName} 방문 횟수를 ${currentVisitCount}회로 저장했습니다.`);
+          const currentVisitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
+          setSelectedDong({ dongCode, dongName, visitCount: currentVisitCount });
+          setIsModalOpen(true);
 
-          polygon.setOptions({
-            ...getVisitStyle(currentVisitCount),
-            zIndex: 100,
-          });
+          const pulseStyle: VisitStyle = {
+            fillColor: "#7c3aed",
+            fillOpacity: 0.42,
+            strokeColor: "#4c1d95",
+            strokeOpacity: 0.95,
+            strokeWeight: 2,
+          };
+
+          applyPolygonStyle(dongCode, pulseStyle, 200);
+
+          if (clickPulseTimerRef.current) {
+            clearTimeout(clickPulseTimerRef.current);
+          }
+
+          clickPulseTimerRef.current = setTimeout(() => {
+            clearClickPulse(dongCode, currentVisitCount);
+          }, 380);
         });
       }
 
@@ -325,10 +506,15 @@ export default function NaverMap() {
         clearTimeout(timeoutId);
       }
     };
-  }, []);
+  }, [applyPolygonStyle, clearClickPulse]);
 
   async function handleDiarySubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!authUser) {
+      setStatusMessage("로그인 후 개인 기록을 저장할 수 있습니다.");
+      return;
+    }
 
     if (!selectedDong) {
       setStatusMessage("먼저 지도를 클릭해서 동을 선택하세요.");
@@ -349,7 +535,7 @@ export default function NaverMap() {
 
       if (photoFile) {
         const fileExtension = photoFile.name.split(".").pop() || "jpg";
-        const filePath = `${selectedDong.dongCode}/${crypto.randomUUID()}.${fileExtension}`;
+        const filePath = `${authUser.id}/${selectedDong.dongCode}/${crypto.randomUUID()}.${fileExtension}`;
 
         const { error: uploadError } = await supabase.storage
           .from("dong-diary-photos")
@@ -372,6 +558,7 @@ export default function NaverMap() {
       const { data, error } = await supabase
         .from("dong_diaries")
         .insert({
+          user_id: authUser.id,
           dong_code: selectedDong.dongCode,
           dong_name: selectedDong.dongName,
           title: diaryTitle.trim() || null,
@@ -390,7 +577,67 @@ export default function NaverMap() {
       setDiaryContent("");
       clearPhotoSelection();
       setPhotoLink("");
+      // After successful diary insert, increment visited_places.visit_count for this user only.
+      try {
+        const nextVisitCount = (visitCountByDongRef.current.get(selectedDong.dongCode) ?? 0) + 1;
+        const { error: visitError } = await supabase.from("visited_places").upsert(
+          {
+            user_id: authUser.id,
+            dong_code: selectedDong!.dongCode,
+            dong_name: selectedDong!.dongName,
+            visit_count: nextVisitCount,
+          },
+          { onConflict: "user_id,dong_code" }
+        );
+
+        if (visitError) {
+          console.error("Failed to update visit count:", visitError);
+        } else {
+          visitCountByDongRef.current.set(selectedDong!.dongCode, nextVisitCount);
+          dongNameByCodeRef.current.set(selectedDong!.dongCode, selectedDong!.dongName);
+          setSelectedDong({
+            dongCode: selectedDong!.dongCode,
+            dongName: selectedDong!.dongName,
+            visitCount: nextVisitCount,
+          });
+          applyPolygonStyle(
+            selectedDong!.dongCode,
+            getVisitStyle(nextVisitCount),
+            nextVisitCount > 0 ? 100 : 10
+          );
+          setVisitStats(() => {
+            const nextVisitedDongCount = visitCountByDongRef.current.size;
+            const nextTotalVisitCount = Array.from(visitCountByDongRef.current.values()).reduce(
+              (sum, value) => sum + value,
+              0
+            );
+
+            let topDongCode: string | null = null;
+            let nextTopVisitCount = 0;
+
+            visitCountByDongRef.current.forEach((count, dongCode) => {
+              if (count > nextTopVisitCount) {
+                nextTopVisitCount = count;
+                topDongCode = dongCode;
+              }
+            });
+
+            return {
+              visitedDongCount: nextVisitedDongCount,
+              totalVisitCount: nextTotalVisitCount,
+              topDongName: topDongCode ? dongNameByCodeRef.current.get(topDongCode) ?? null : null,
+              topVisitCount: nextTopVisitCount,
+            };
+          });
+        }
+      } catch (e) {
+        console.error("Error updating visit count:", e);
+      }
+
       setStatusMessage("동 일기와 사진이 저장되었습니다.");
+
+      // close modal if open
+      setIsModalOpen(false);
     } catch (error) {
       console.error("Failed to save diary:", error);
       setStatusMessage("일기 저장에 실패했습니다. 콘솔을 확인하세요.");
@@ -434,25 +681,252 @@ export default function NaverMap() {
     }
   }
 
+  function closeModal() {
+    setIsModalOpen(false);
+    clearPhotoSelection();
+    setDiaryTitle("");
+    setDiaryContent("");
+    setPhotoLink("");
+  }
+
+  async function handleAuthSubmit(mode: "login" | "signup") {
+    const email = authEmail.trim();
+
+    if (!email || !authPassword) {
+      setAuthMessage("이메일과 비밀번호를 입력하세요.");
+      return;
+    }
+
+    setIsAuthSubmitting(true);
+    setAuthMessage(null);
+
+    try {
+      if (mode === "login") {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password: authPassword,
+        });
+
+        if (error) throw error;
+
+        setAuthMessage("로그인되었습니다.");
+      } else {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password: authPassword,
+        });
+
+        if (error) throw error;
+
+        setAuthMessage("가입 요청을 보냈습니다. 이메일 확인이 필요한 경우 메일을 확인하세요.");
+      }
+    } catch (error) {
+      console.error("Auth failed:", error);
+      setAuthMessage("로그인/회원가입에 실패했습니다. 이메일과 비밀번호를 다시 확인하세요.");
+    } finally {
+      setIsAuthSubmitting(false);
+    }
+  }
+
+  async function handleLogout() {
+    setIsAuthSubmitting(true);
+    setAuthMessage(null);
+
+    try {
+      const { error } = await supabase.auth.signOut();
+
+      if (error) throw error;
+
+      setAuthMessage("로그아웃되었습니다.");
+      setAuthEmail("");
+      setAuthPassword("");
+    } catch (error) {
+      console.error("Logout failed:", error);
+      setAuthMessage("로그아웃에 실패했습니다.");
+    } finally {
+      setIsAuthSubmitting(false);
+    }
+  }
+
+  const visitBadgeItems = [
+    {
+      label: "방문한 동",
+      value: `${visitStats.visitedDongCount}개`,
+      toneClassName: "border-sky-200 bg-sky-50 text-sky-700",
+      icon: (
+        <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 fill-current">
+          <path d="M12 2C8.14 2 5 5.14 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.86-3.14-7-7-7Zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5Z" />
+        </svg>
+      ),
+    },
+    {
+      label: "총 방문",
+      value: `${visitStats.totalVisitCount}회`,
+      toneClassName: "border-emerald-200 bg-emerald-50 text-emerald-700",
+      icon: (
+        <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 fill-current">
+          <path d="M12 3 4 7v6c0 5 3.5 9.7 8 11 4.5-1.3 8-6 8-11V7l-8-4Zm1 15h-2v-2h2v2Zm0-4h-2V7h2v7Z" />
+        </svg>
+      ),
+    },
+    {
+      label: "가장 많이 간 동",
+      value: visitStats.topDongName ? `${visitStats.topDongName} · ${visitStats.topVisitCount}회` : "없음",
+      toneClassName: "border-amber-200 bg-amber-50 text-amber-700",
+      icon: (
+        <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 fill-current">
+          <path d="M12 2 9 8l-6 .9 4.4 4.3-1 6 5.6-2.9 5.6 2.9-1-6L21 8.9 15 8l-3-6Z" />
+        </svg>
+      ),
+    },
+  ];
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(237,246,255,0.95),_rgba(247,250,252,1)_34%,_rgba(232,238,252,0.92)_100%)] text-slate-900">
-      <div className="mx-auto grid min-h-screen w-full max-w-[1600px] gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-stretch">
-        <section className="flex min-h-[70vh] flex-col overflow-hidden rounded-[28px] border border-white/70 bg-white/80 shadow-[0_30px_80px_rgba(15,23,42,0.14)] backdrop-blur lg:h-[calc(100vh-2rem)] lg:min-h-0">
-          <div className="flex items-center justify-between border-b border-slate-200/80 px-5 py-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-700">
+      {isModalOpen && selectedDong ? (
+        <div className="fixed left-0 top-0 z-50 flex h-full w-full items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">{selectedDong.dongName}에 일기 추가</h3>
+              <button
+                onClick={closeModal}
+                className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700"
+              >
+                닫기
+              </button>
+            </div>
+            <form className="mt-4 space-y-3" onSubmit={handleDiarySubmit}>
+              <input
+                value={diaryTitle}
+                onChange={(e) => setDiaryTitle(e.target.value)}
+                placeholder="제목"
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+              />
+              <textarea
+                value={diaryContent}
+                onChange={(e) => setDiaryContent(e.target.value)}
+                placeholder="이 동에서 어떤 하루를 보냈는지 적어보세요."
+                rows={6}
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+              />
+              <input
+                value={photoLink}
+                onChange={(event) => setPhotoLink(event.target.value)}
+                placeholder="사진 URL을 직접 붙여 넣을 수도 있습니다."
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+              />
+              <input
+                key={photoInputKey}
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoChange}
+                className="block w-full cursor-pointer rounded-2xl border border-dashed border-slate-200 px-4 py-3 text-sm"
+              />
+
+              {photoPreviewUrl ? (
+                <div className="relative h-44 overflow-hidden rounded-2xl border border-slate-200 bg-black/5">
+                  <Image src={photoPreviewUrl} alt="선택한 사진 미리보기" fill unoptimized className="object-cover" />
+                </div>
+              ) : null}
+
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="rounded-full border px-4 py-2 text-sm"
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingDiary}
+                  className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950"
+                >
+                  {isSavingDiary ? "저장 중" : "저장"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+      <div className="mx-auto grid min-h-screen w-full max-w-[1600px] gap-4 p-3 sm:p-4 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-stretch">
+        <section className="flex min-h-[56vh] flex-col overflow-hidden rounded-[24px] border border-white/70 bg-white/80 shadow-[0_30px_80px_rgba(15,23,42,0.14)] backdrop-blur sm:min-h-[60vh] lg:h-[calc(100vh-2rem)] lg:min-h-0 lg:rounded-[28px]">
+          <div className="flex flex-col gap-3 border-b border-slate-200/80 px-4 py-4 sm:px-5 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-sky-700 sm:text-xs sm:tracking-[0.28em]">
                 Travel Map Diary
               </p>
-              <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">
+              <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">
                 서울 동 단위 여행 일기
               </h1>
             </div>
-            <div className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sm font-medium text-sky-700">
-              방문 횟수 + 일기 + 사진
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+              <div className="inline-flex w-fit items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-medium text-sky-700 shadow-sm sm:px-3 sm:text-sm">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-sky-600 text-white shadow-sm sm:h-6 sm:w-6">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3.5 w-3.5 fill-current">
+                    <path d="M12 2C8.14 2 5 5.14 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.86-3.14-7-7-7Zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5Z" />
+                  </svg>
+                </span>
+                <span>방문 횟수 + 일기 + 사진</span>
+              </div>
+
+              <div className="flex w-full gap-2 overflow-x-auto pb-1 sm:w-auto sm:flex-wrap sm:overflow-visible">
+                {visitBadgeItems.map((item) => (
+                  <div
+                    key={item.label}
+                    className={`flex min-w-[165px] flex-none items-center gap-2.5 rounded-2xl border px-3 py-2 shadow-sm sm:min-w-[185px] ${item.toneClassName}`}
+                  >
+                    <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white/80 shadow-sm sm:h-9 sm:w-9">
+                      {item.icon}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-80 sm:text-[11px] sm:tracking-[0.18em]">
+                        {item.label}
+                      </p>
+                      <p className="truncate text-[13px] font-semibold text-slate-950 sm:text-sm">
+                        {item.value}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-          <div className="relative min-h-[420px] flex-1 overflow-hidden lg:min-h-0">
-            <div ref={mapRef} className="h-full w-full min-h-[420px]" />
+          <div className="relative min-h-[50vh] flex-1 overflow-hidden sm:min-h-[54vh] lg:min-h-0">
+            <div ref={mapRef} className="h-full w-full min-h-[50vh] sm:min-h-[54vh] lg:min-h-0" />
+            <div className="pointer-events-none absolute left-3 top-3 z-20 hidden max-w-[calc(100%-1.5rem)] flex-col gap-2 sm:flex sm:max-w-[320px]">
+              <div className="rounded-2xl border border-white/70 bg-white/90 px-4 py-3 text-sm font-medium text-slate-800 shadow-lg backdrop-blur">
+                {hoveredDongName ? `현재 보기: ${hoveredDongName}` : "동 위에 마우스를 올리면 이름이 표시됩니다."}
+              </div>
+            </div>
+
+            <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-1.5rem)] sm:bottom-4 sm:left-4">
+              <div className="rounded-2xl border border-white/70 bg-white/90 p-2 shadow-lg backdrop-blur sm:p-4">
+                <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-500 sm:mb-2 sm:text-[11px] sm:tracking-[0.24em]">
+                  Legend
+                </div>
+                <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-1">
+                  <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
+                    <span className="h-2 w-2 rounded-full border border-slate-300 bg-[#FBE4D6]" />
+                    방문 전
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
+                    <span className="h-2 w-2 rounded-full border border-[#261FB3] bg-[#261FB3]" />
+                    1회 이상 방문
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
+                    <span className="h-2 w-2 rounded-full border border-emerald-400 bg-emerald-400" />
+                    통계 상위 동
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
+                    <span className="h-2 w-2 rounded-full border border-violet-500 bg-violet-500" />
+                    클릭 하이라이트
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {statusMessage ? (
               <div className="absolute left-4 top-4 max-w-[320px] rounded-2xl border border-sky-200 bg-white/90 px-4 py-3 text-sm text-slate-700 shadow-lg backdrop-blur">
                 {statusMessage}
@@ -462,112 +936,131 @@ export default function NaverMap() {
         </section>
 
         <aside className="flex min-h-0 flex-col gap-4 rounded-[28px] border border-slate-200/80 bg-slate-950 px-4 py-4 text-slate-100 shadow-[0_30px_80px_rgba(15,23,42,0.2)] lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)]">
-          <div className="rounded-[24px] border border-white/10 bg-white/5 p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
-              현재 선택된 동
-            </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">
-              {selectedDong ? selectedDong.dongName : "지도를 클릭해 동을 선택하세요"}
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              선택한 동은 방문 횟수에 따라 색이 진해지고, 아래 폼에서 일기와 사진을 함께 저장할 수 있습니다.
-            </p>
-
-            {selectedDong ? (
-              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <p className="text-slate-400">동 코드</p>
-                  <p className="mt-1 font-semibold text-white">{selectedDong.dongCode}</p>
+          <div className="rounded-[24px] border border-white/10 bg-white/5 p-4 sm:p-5">
+            {!authUser ? (
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
+                    로그인
+                  </p>
+                  <h2 className="mt-2 text-xl font-semibold tracking-tight text-white sm:text-2xl">
+                    개인 지도 시작
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">
+                    이메일로 로그인하면 나만의 방문 기록과 일기가 보입니다.
+                  </p>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <p className="text-slate-400">방문 횟수</p>
-                  <p className="mt-1 font-semibold text-white">{selectedDong.visitCount}회</p>
+
+                <div className="space-y-2">
+                  <input
+                    value={authEmail}
+                    onChange={(event) => setAuthEmail(event.target.value)}
+                    type="email"
+                    autoComplete="email"
+                    placeholder="이메일"
+                    className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-300"
+                  />
+                  <input
+                    value={authPassword}
+                    onChange={(event) => setAuthPassword(event.target.value)}
+                    type="password"
+                    autoComplete="current-password"
+                    placeholder="비밀번호"
+                    className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-300"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleAuthSubmit("login")}
+                    disabled={isAuthSubmitting || authLoading}
+                    className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
+                  >
+                    {isAuthSubmitting ? "처리 중" : "로그인"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAuthSubmit("signup")}
+                    disabled={isAuthSubmitting || authLoading}
+                    className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-white/10"
+                  >
+                    회원가입
+                  </button>
                 </div>
               </div>
+            ) : (
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
+                    로그인됨
+                  </p>
+                  <h2 className="mt-2 text-xl font-semibold tracking-tight text-white sm:text-2xl">
+                    {authUser.email ?? "익명 계정"}
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">
+                    이 계정의 개인 여행 기록만 불러옵니다.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  disabled={isAuthSubmitting}
+                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-white/10"
+                >
+                  로그아웃
+                </button>
+              </div>
+            )}
+
+            {authMessage ? (
+              <p className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200">
+                {authMessage}
+              </p>
             ) : null}
           </div>
 
-          <form
-            className="rounded-[24px] border border-white/10 bg-white/5 p-5"
-            onSubmit={handleDiarySubmit}
-          >
-            <div className="flex items-center justify-between gap-3">
+          <div className="rounded-[24px] border border-white/10 bg-white/5 p-4 sm:p-5">
+            <button
+              type="button"
+              onClick={() => setIsTimelineOpen((current) => !current)}
+              className="flex w-full items-center justify-between gap-3 text-left lg:cursor-default"
+            >
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
-                  동 일기 작성
+                  동별 기록
                 </p>
-                <h3 className="mt-2 text-lg font-semibold text-white">오늘의 기록 추가</h3>
+                <h2 className="mt-2 text-xl font-semibold tracking-tight text-white sm:text-2xl">
+                  타임라인
+                </h2>
               </div>
-              <button
-                type="submit"
-                disabled={!selectedDong || isSavingDiary}
-                className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
-              >
-                {isSavingDiary ? "저장 중" : "저장"}
-              </button>
-            </div>
+              <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs font-medium text-slate-200 lg:hidden">
+                {isTimelineOpen ? "접기" : "펼치기"}
+              </span>
+            </button>
+            <p className="mt-2 text-sm leading-6 text-slate-300 sm:text-[15px]">
+              지도를 클릭하면 모달이 열리고, 저장된 기록은 아래에서 확인할 수 있습니다.
+            </p>
+          </div>
 
-            <div className="mt-4 space-y-3">
-              <input
-                value={diaryTitle}
-                onChange={(event) => setDiaryTitle(event.target.value)}
-                disabled={!selectedDong}
-                placeholder="제목"
-                className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-300"
-              />
-              <textarea
-                value={diaryContent}
-                onChange={(event) => setDiaryContent(event.target.value)}
-                disabled={!selectedDong}
-                placeholder="이 동에서 어떤 하루를 보냈는지 적어보세요."
-                rows={7}
-                className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-slate-500 focus:border-sky-300"
-              />
-              <input
-                value={photoLink}
-                onChange={(event) => setPhotoLink(event.target.value)}
-                disabled={!selectedDong}
-                placeholder="사진 URL을 직접 붙여 넣을 수도 있습니다."
-                className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-300"
-              />
-              <input
-                key={photoInputKey}
-                ref={photoInputRef}
-                type="file"
-                accept="image/*"
-                disabled={!selectedDong}
-                onChange={handlePhotoChange}
-                className="block w-full cursor-pointer rounded-2xl border border-dashed border-white/15 bg-slate-900/60 px-4 py-3 text-sm text-slate-300 file:mr-4 file:rounded-full file:border-0 file:bg-sky-400 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-950 hover:file:bg-sky-300"
-              />
-
-              {photoPreviewUrl ? (
-                <div className="relative h-44 overflow-hidden rounded-2xl border border-white/10 bg-black/30">
-                  <Image
-                    src={photoPreviewUrl}
-                    alt="선택한 사진 미리보기"
-                    fill
-                    unoptimized
-                    className="object-cover"
-                  />
-                </div>
-              ) : null}
-            </div>
-          </form>
-
-          <div className="min-h-0 flex-1 overflow-hidden rounded-[24px] border border-white/10 bg-white/5 p-5">
+          <div
+            className={`min-h-0 flex-1 overflow-hidden rounded-[24px] border border-white/10 bg-white/5 p-4 sm:p-5 ${
+              isTimelineOpen ? "block" : "hidden lg:block"
+            }`}
+          >
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
                   저장된 기록
                 </p>
-                <h3 className="mt-2 text-lg font-semibold text-white">동별 타임라인</h3>
+                <h3 className="mt-2 text-base font-semibold text-white sm:text-lg">동별 타임라인</h3>
               </div>
               <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-slate-200">
                 {isLoadingDiaries ? "불러오는 중" : `${diaries.length}개`}
               </span>
             </div>
 
-            <div className="mt-4 max-h-[38vh] space-y-3 overflow-y-auto pr-1 lg:max-h-[calc(100vh-560px)]">
+            <div className="mt-4 max-h-[30vh] space-y-3 overflow-y-auto pr-1 sm:max-h-[34vh] lg:max-h-[calc(100vh-560px)]">
               {!selectedDong ? (
                 <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-300">
                   동을 먼저 선택하면 이곳에 일기와 사진이 쌓입니다.
