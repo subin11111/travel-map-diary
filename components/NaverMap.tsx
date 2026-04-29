@@ -166,25 +166,32 @@ export default function NaverMap() {
       setIsLoadingDiaries(true);
       setStatusMessage(null);
 
-      const { data, error } = await supabase
-        .from("dong_diaries")
-        .select("id, dong_code, dong_name, title, content, photo_url, created_at")
-        .eq("dong_code", selectedDong.dongCode)
-        .order("created_at", { ascending: false });
+      try {
+        const { data, error } = await supabase
+          .from("dong_diaries")
+          .select("id, dong_code, dong_name, title, content, photo_url, created_at")
+          .eq("dong_code", selectedDong.dongCode)
+          .order("created_at", { ascending: false });
 
-      if (!isActive) {
-        return;
-      }
+        if (!isActive) return;
 
-      if (error) {
-        console.error("Failed to load diaries:", error);
+        if (error) throw error;
+
+        setDiaries((data ?? []) as DongDiary[]);
+      } catch (err) {
+        console.error("Failed to load diaries:", err);
+        try {
+          // Some error objects are non-enumerable; log full properties when possible
+          console.error("Error details:", JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
+        } catch (e) {
+          // ignore stringify errors
+        }
+
         setStatusMessage("일기 목록을 불러오지 못했습니다.");
         setDiaries([]);
-      } else {
-        setDiaries((data ?? []) as DongDiary[]);
+      } finally {
+        setIsLoadingDiaries(false);
       }
-
-      setIsLoadingDiaries(false);
     }
 
     void loadDiaries();
