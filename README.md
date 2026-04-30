@@ -39,7 +39,7 @@ Naver Map Background
 
 - 배경지도: Naver Maps JavaScript API
 - 경계 overlay: MapLibre GL JS
-- 벡터 타일 파일: `public/tiles/eupmyeondong_z5_z13_detail.pmtiles`
+- 벡터 타일 파일: `public/tiles/eupmyeondong.pmtiles`
 - PMTiles source id: `eupmyeondong`
 - PMTiles source-layer: `eupmyeondong`
 - source zoom: min `5`, max `13`
@@ -104,6 +104,7 @@ NEXT_PUBLIC_DEBUG_BOUNDARY_STYLE=false
 NEXT_PUBLIC_DEBUG_OVERLAY_BACKGROUND=false
 NEXT_PUBLIC_DEBUG_FIXED_OVERLAY_VIEW=false
 NEXT_PUBLIC_DEBUG_REGION_LABEL=false
+NEXT_PUBLIC_PMTILES_URL=
 ```
 
 - `NEXT_PUBLIC_SUPABASE_URL`: Supabase Project URL
@@ -114,6 +115,7 @@ NEXT_PUBLIC_DEBUG_REGION_LABEL=false
 - `NEXT_PUBLIC_DEBUG_OVERLAY_BACKGROUND`: `true`일 때 overlay 영역을 옅은 빨간 배경으로 표시합니다.
 - `NEXT_PUBLIC_DEBUG_FIXED_OVERLAY_VIEW`: `true`일 때 MapLibre overlay를 고정 테스트 뷰로 표시합니다.
 - `NEXT_PUBLIC_DEBUG_REGION_LABEL`: `true`일 때 Safari 한글 깨짐 확인용으로 지역 raw properties와 최종 표시 라벨을 최대 10개만 출력합니다.
+- `NEXT_PUBLIC_PMTILES_URL`: 선택값. 외부 Storage/CDN에 PMTiles를 올릴 때 절대 URL을 지정합니다. 없으면 `/tiles/eupmyeondong.pmtiles`를 사용합니다.
 
 보안 주의:
 
@@ -175,7 +177,7 @@ npm run db:push
 → WKB/EWKB geometry 파싱
 → GeoJSON 생성
 → PMTiles 생성
-→ public/tiles/eupmyeondong_z5_z13_detail.pmtiles
+→ public/tiles/eupmyeondong.pmtiles
 ```
 
 인코딩 전처리:
@@ -207,14 +209,15 @@ PMTiles property를 최신화하려면 다음 순서로 다시 생성합니다.
 2. `lib/sigungu-code-map.json` 검증/재생성
 3. GeoJSON 재생성
 4. PMTiles 재생성
-5. `public/tiles/eupmyeondong_z5_z13_detail.pmtiles` 교체
+5. `public/tiles/eupmyeondong.pmtiles` 교체
 
 `npm run tiles:build`는 `tippecanoe` CLI가 필요합니다. Windows에서는 WSL, Docker, macOS/Linux 환경에서 `tippecanoe`를 설치한 뒤 실행하세요.
 현재 빌드 스크립트는 상세 경계를 위해 `-Z5 -z13`, `--no-feature-limit`, `--no-tile-size-limit`, `--no-tiny-polygon-reduction`, `--no-line-simplification` 옵션을 사용합니다.
+생성 후 `tmd_preprocess/fix_pmtiles_metadata_compression.cjs`가 PMTiles metadata 압축 정보를 보정합니다. 이 보정이 없으면 파일은 200 OK로 응답해도 브라우저에서 metadata/header 읽기에 실패할 수 있습니다.
 
 생성 결과:
 
-- PMTiles 파일: `public/tiles/eupmyeondong_z5_z13_detail.pmtiles`
+- PMTiles 파일: `public/tiles/eupmyeondong.pmtiles`
 - source id: `eupmyeondong`
 - source-layer: `eupmyeondong`
 - source zoom: min `5`, max `13`
@@ -232,7 +235,7 @@ PMTiles 파일이 없으면 전국 읍면동 경계가 표시되지 않습니다
 - 앱 런타임/배포에는 PMTiles 파일만 사용
 - PMTiles 파일은 배포 정책에 따라 Git 포함 여부를 결정합니다.
 
-현재 `.gitignore`는 CSV와 중간 GeoJSON을 제외합니다. Vercel에서 전국 경계를 표시하려면 `public/tiles/eupmyeondong_z5_z13_detail.pmtiles`가 배포 산출물에 포함되어야 합니다.
+현재 `.gitignore`는 CSV와 중간 GeoJSON을 제외합니다. Vercel에서 전국 경계를 표시하려면 `public/tiles/eupmyeondong.pmtiles`가 배포 산출물에 포함되어야 합니다.
 
 ## UI 구조
 
@@ -269,7 +272,7 @@ Drawer:
 3. Root Directory는 프로젝트 루트(`travel-map-diary`)로 설정합니다.
 4. Install Command는 `npm install`, Build Command는 `npm run build`를 사용합니다.
 5. Vercel 환경 변수에 Supabase와 Naver Maps 값을 등록합니다.
-6. `public/tiles/eupmyeondong_z5_z13_detail.pmtiles` 포함 여부를 확인합니다.
+6. `public/tiles/eupmyeondong.pmtiles` 포함 여부를 확인합니다.
 
 ### 2. Supabase Auth URL
 
@@ -308,7 +311,7 @@ npm run db:push
 - Supabase Auth Redirect URL 등록
 - Naver Cloud 인증 도메인 등록
 - Supabase migration 적용
-- `public/tiles/eupmyeondong_z5_z13_detail.pmtiles` 존재 확인
+- `public/tiles/eupmyeondong.pmtiles` 존재 확인
 
 ### 6. 배포 후 테스트 체크리스트
 
@@ -338,4 +341,4 @@ npm.cmd run build
 
 ## PMTiles 라벨 재생성 주의
 
-GeoJSON의 `sido_name`, `sig_name`, `full_name` property 또는 `lib/sigungu-code-map.json`을 수정했다면 기존 PMTiles에는 자동 반영되지 않습니다. `tmd_preprocess/convert_to_geojson.py`로 GeoJSON을 다시 생성한 뒤 `npm run tiles:build`로 `public/tiles/eupmyeondong_z5_z13_detail.pmtiles`를 반드시 재생성하세요. 기존 PMTiles를 그대로 사용하면 hover/선택 지역명이 깨진 상태로 계속 표시될 수 있습니다.
+GeoJSON의 `sido_name`, `sig_name`, `full_name` property 또는 `lib/sigungu-code-map.json`을 수정했다면 기존 PMTiles에는 자동 반영되지 않습니다. `tmd_preprocess/convert_to_geojson.py`로 GeoJSON을 다시 생성한 뒤 `npm run tiles:build`로 `public/tiles/eupmyeondong.pmtiles`를 반드시 재생성하세요. 기존 PMTiles를 그대로 사용하면 hover/선택 지역명이 깨진 상태로 계속 표시될 수 있습니다.

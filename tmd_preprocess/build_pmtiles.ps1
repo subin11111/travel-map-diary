@@ -1,6 +1,6 @@
 param(
   [string]$GeoJsonInput = "public/geo/eupmyeondong.geojson",
-  [string]$PmtilesOutput = "public/tiles/eupmyeondong_z5_z13_detail.pmtiles",
+  [string]$PmtilesOutput = "public/tiles/eupmyeondong.pmtiles",
   [string]$LayerName = "eupmyeondong"
 )
 
@@ -37,5 +37,7 @@ tippecanoe `
   --no-line-simplification `
   --force `
   $inputPath
+
+node (Join-Path $repoRoot "tmd_preprocess/fix_pmtiles_metadata_compression.cjs") $outputPath
 
 Write-Host "Vector tile build complete: $PmtilesOutput"

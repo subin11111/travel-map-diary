@@ -125,7 +125,7 @@ type NaverWindow = Window & {
   __pmtilesProtocolRegistered?: boolean;
 };
 
-const EUPMYEONDONG_PMTILES_PATH = "/tiles/eupmyeondong_z5_z13_detail.pmtiles";
+const EUPMYEONDONG_PMTILES_PATH = "/tiles/eupmyeondong.pmtiles";
 const EUPMYEONDONG_SOURCE_ID = "eupmyeondong";
 const EUPMYEONDONG_SOURCE_LAYER = "eupmyeondong";
 const EUPMYEONDONG_SOURCE_MIN_ZOOM = 5;
@@ -153,7 +153,7 @@ const DEBUG_REGION_LABEL = process.env.NEXT_PUBLIC_DEBUG_REGION_LABEL === "true"
 const OVERLAY_MOVING_OPACITY = "0.22";
 const OVERLAY_IDLE_OPACITY = "1";
 const TILE_FILE_CHECK_FAILED_MESSAGE = "PMTiles 파일을 찾지 못했습니다.";
-const TILE_HEADER_FAILED_MESSAGE = "PMTiles 파일을 읽지 못했습니다.";
+const TILE_HEADER_FAILED_MESSAGE = "PMTiles 파일은 확인되었지만, 타일 헤더를 읽지 못했습니다.";
 const TILE_LAYER_FAILED_MESSAGE = "전국 지도 타일 파일은 확인되었지만, 지도 경계 레이어 초기화에 실패했습니다. 콘솔 로그를 확인해 주세요.";
 
 let isPmtilesProtocolRegistered = false;
@@ -630,7 +630,8 @@ function getBoundsFromPmtilesMetadata(metadata: unknown) {
 }
 
 function getPmtilesUrls() {
-  const absoluteUrl = new URL(EUPMYEONDONG_PMTILES_PATH, window.location.origin).toString();
+  const configuredUrl = process.env.NEXT_PUBLIC_PMTILES_URL?.trim();
+  const absoluteUrl = new URL(configuredUrl || EUPMYEONDONG_PMTILES_PATH, window.location.origin).toString();
 
   return {
     path: EUPMYEONDONG_PMTILES_PATH,
@@ -642,27 +643,9 @@ function getPmtilesUrls() {
 async function checkPmtilesFileAvailable(url: string) {
   const collectHeaders = (response: Response) => ({
     contentLength: response.headers.get("content-length"),
+    contentRange: response.headers.get("content-range"),
     acceptRanges: response.headers.get("accept-ranges"),
     contentType: response.headers.get("content-type"),
-  });
-
-  const headResponse = await fetch(url, { method: "HEAD", cache: "no-store" });
-
-  if (headResponse.ok) {
-    return {
-      ok: true,
-      method: "HEAD",
-      status: headResponse.status,
-      statusText: headResponse.statusText,
-      headers: collectHeaders(headResponse),
-    };
-  }
-
-  console.warn("PMTiles HEAD check failed. Retrying with a small GET request.", {
-    url,
-    status: headResponse.status,
-    statusText: headResponse.statusText,
-    headers: collectHeaders(headResponse),
   });
 
   const getResponse = await fetch(url, {
@@ -672,12 +655,31 @@ async function checkPmtilesFileAvailable(url: string) {
     },
   });
 
-  return {
-    ok: getResponse.ok,
-    method: "GET",
+  if (getResponse.ok || getResponse.status === 206) {
+    return {
+      ok: true,
+      method: "GET",
+      status: getResponse.status,
+      statusText: getResponse.statusText,
+      headers: collectHeaders(getResponse),
+    };
+  }
+
+  console.warn("PMTiles Range GET check failed. Retrying with HEAD request.", {
+    url,
     status: getResponse.status,
     statusText: getResponse.statusText,
     headers: collectHeaders(getResponse),
+  });
+
+  const headResponse = await fetch(url, { method: "HEAD", cache: "no-store" });
+
+  return {
+    ok: headResponse.ok,
+    method: "HEAD",
+    status: headResponse.status,
+    statusText: headResponse.statusText,
+    headers: collectHeaders(headResponse),
   };
 }
 
