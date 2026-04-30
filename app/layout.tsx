@@ -16,6 +16,13 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Life Map Diary",
   description: "전국 읍면동 단위 일상 기록과 사진을 남기는 개인 기록 지도",
+  icons: {
+    icon: [
+      { url: "/logo.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico" },
+    ],
+    apple: [{ url: "/logo.svg", type: "image/svg+xml" }],
+  },
 };
 
 export default function RootLayout({

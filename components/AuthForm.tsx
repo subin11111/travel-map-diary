@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -216,9 +217,19 @@ export default function AuthForm({ mode }: AuthFormProps) {
         <div className="grid w-full gap-6 overflow-hidden rounded-[32px] border border-white/70 bg-white/80 shadow-[0_30px_90px_rgba(15,23,42,0.14)] backdrop-blur lg:grid-cols-[1.05fr_0.95fr]">
           <section className="flex flex-col justify-between gap-10 bg-slate-950 px-6 py-8 text-white sm:px-8 sm:py-10 lg:px-10 lg:py-12">
             <div className="space-y-6">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-sky-300">
-                Life Map Diary
-              </p>
+              <div className="flex items-center gap-3">
+                <Image
+                  src="/logo.svg"
+                  alt="Life Map Diary 로고"
+                  width={48}
+                  height={48}
+                  priority
+                  className="h-11 w-11 flex-none object-contain sm:h-12 sm:w-12"
+                />
+                <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-sky-300">
+                  Life Map Diary
+                </p>
+              </div>
               <div className="space-y-3">
                 <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
                   {getHeading(mode)}

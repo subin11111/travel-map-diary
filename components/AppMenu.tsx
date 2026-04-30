@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
@@ -101,6 +102,13 @@ export default function AppMenu({ compact = false }: AppMenuProps) {
       {isOpen ? (
         <div className="mt-3 w-[calc(100vw-2rem)] max-w-72 overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
           <div className="border-b border-slate-100 px-4 py-4">
+            <Image
+              src="/logo.svg"
+              alt="Life Map Diary 로고"
+              width={40}
+              height={40}
+              className="mb-3 h-10 w-10 object-contain"
+            />
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">메뉴</p>
             <h2 className="mt-2 text-lg font-semibold tracking-tight text-slate-950">
               {authUser ? getHandle(authUser) ?? "익명 계정" : "Life Map Diary"}

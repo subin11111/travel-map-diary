@@ -2934,6 +2934,14 @@ export default function NaverMap() {
               <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
             </svg>
           </button>
+          <Image
+            src="/logo.svg"
+            alt="Life Map Diary 로고"
+            width={40}
+            height={40}
+            priority
+            className="h-9 w-9 flex-none object-contain sm:h-10 sm:w-10"
+          />
           <div className="min-w-0 flex-1">
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-300">
               Life Map Diary
@@ -3037,14 +3045,23 @@ export default function NaverMap() {
           <aside className="ml-auto flex h-full w-full max-w-md flex-col bg-slate-950 text-slate-100 shadow-2xl sm:m-3 sm:h-[calc(100%-1.5rem)] sm:rounded-[28px]">
             <div className="border-b border-white/10 px-4 pb-3 pt-[calc(1rem+env(safe-area-inset-top))] sm:pt-4">
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
-                    Life Map Diary
-                  </p>
-                  <h2 className="mt-1 truncate text-xl font-semibold">
-                    {currentMap?.icon ? `${currentMap.icon} ` : ""}
-                    {mapTitle}
-                  </h2>
+                <div className="flex min-w-0 items-center gap-3">
+                  <Image
+                    src="/logo.svg"
+                    alt="Life Map Diary 로고"
+                    width={44}
+                    height={44}
+                    className="h-10 w-10 flex-none object-contain sm:h-11 sm:w-11"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
+                      Life Map Diary
+                    </p>
+                    <h2 className="mt-1 truncate text-xl font-semibold">
+                      {currentMap?.icon ? `${currentMap.icon} ` : ""}
+                      {mapTitle}
+                    </h2>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -3598,13 +3615,23 @@ export default function NaverMap() {
       <div className="fixed inset-0 mx-auto grid w-full max-w-[1600px] gap-4 px-0 pb-0 pt-[calc(3.5rem+env(safe-area-inset-top))] lg:block">
         <section className="flex h-full min-h-0 flex-col overflow-hidden bg-white/80 shadow-[0_30px_80px_rgba(15,23,42,0.14)] backdrop-blur">
           <div className="hidden flex-col gap-3 border-b border-slate-200/80 px-4 py-4 sm:px-5 xl:flex-row xl:items-center xl:justify-between">
-            <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-3">
+              <Image
+                src="/logo.svg"
+                alt="Life Map Diary 로고"
+                width={48}
+                height={48}
+                priority
+                className="h-11 w-11 flex-none object-contain xl:h-12 xl:w-12"
+              />
+              <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-sky-700 sm:text-xs sm:tracking-[0.28em]">
                 Life Map Diary
               </p>
               <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">
                 {currentMap ? currentMap.title : "전국 읍면동 일상 지도"}
               </h1>
+              </div>
             </div>
             <div className="flex min-w-0 flex-col gap-2 xl:flex-row xl:flex-wrap xl:items-center xl:justify-end">
               <div className="inline-flex w-full items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-medium text-sky-700 shadow-sm sm:w-fit sm:px-3 sm:text-sm">
