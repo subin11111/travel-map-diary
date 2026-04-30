@@ -1144,112 +1144,107 @@ export default function NaverMap() {
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
                     지도 선택
                   </p>
-                  <h3 className="mt-2 truncate text-lg font-semibold">
-                    {currentMap?.title ?? "선택된 지도 없음"}
-                  </h3>
-                  <p className="mt-1 truncate text-sm text-slate-300">
-                    {authUser ? "현재 사용할 지도를 선택하세요." : "지도를 만들려면 먼저 로그인해 주세요."}
-                  </p>
-                  {maps.length > 0 ? (
-                    <select
-                      value={currentMap?.id ?? ""}
-                      onChange={(event) => selectMap(event.target.value)}
-                      disabled={isLoadingMaps}
-                      className="mt-3 w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none focus:border-sky-300 disabled:cursor-not-allowed disabled:text-slate-400"
-                    >
-                      {ownedMaps.length > 0 ? (
-                        <optgroup label="내 지도">
-                          {ownedMaps.map((map) => (
-                            <option key={map.id} value={map.id}>
-                              {map.icon ? `${map.icon} ` : ""}
-                              {map.title}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ) : null}
-                      {sharedMaps.length > 0 ? (
-                        <optgroup label="공유받은 지도">
-                          {sharedMaps.map((map) => (
-                            <option key={map.id} value={map.id}>
-                              {map.icon ? `${map.icon} ` : ""}
-                              {map.title}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ) : null}
-                    </select>
+                  {authUser ? (
+                    <>
+                      <h3 className="mt-2 truncate text-lg font-semibold">
+                        {currentMap?.title ?? "선택된 지도 없음"}
+                      </h3>
+                      <p className="mt-1 truncate text-sm text-slate-300">
+                        현재 사용할 지도를 선택하세요.
+                      </p>
+                      {maps.length > 0 ? (
+                        <select
+                          value={currentMap?.id ?? ""}
+                          onChange={(event) => selectMap(event.target.value)}
+                          disabled={isLoadingMaps}
+                          className="mt-3 w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none focus:border-sky-300 disabled:cursor-not-allowed disabled:text-slate-400"
+                        >
+                          {ownedMaps.length > 0 ? (
+                            <optgroup label="내 지도">
+                              {ownedMaps.map((map) => (
+                                <option key={map.id} value={map.id}>
+                                  {map.icon ? `${map.icon} ` : ""}
+                                  {map.title}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ) : null}
+                          {sharedMaps.length > 0 ? (
+                            <optgroup label="공유받은 지도">
+                              {sharedMaps.map((map) => (
+                                <option key={map.id} value={map.id}>
+                                  {map.icon ? `${map.icon} ` : ""}
+                                  {map.title}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ) : null}
+                        </select>
+                      ) : (
+                        <div className="mt-3 rounded-2xl border border-white/15 bg-black/25 px-4 py-3 text-sm text-slate-200">
+                          아직 사용할 수 있는 지도가 없습니다.
+                        </div>
+                      )}
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsCreateOpen(true)}
+                          className="rounded-2xl bg-sky-400 px-4 py-3 text-sm font-semibold text-slate-950"
+                        >
+                          새 지도
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditOpen(true)}
+                          disabled={currentMap?.role !== "owner"}
+                          className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:text-slate-500"
+                        >
+                          지도 설정
+                        </button>
+                        {currentMap?.role === "owner" ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setIsShareOpen(true)}
+                              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white"
+                            >
+                              공유 관리
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDeleteConfirmText("");
+                                setDeleteMessage(null);
+                                setIsDeleteOpen(true);
+                              }}
+                              className="rounded-2xl border border-rose-300/20 bg-rose-500/10 px-4 py-3 text-sm font-semibold text-rose-200"
+                            >
+                              지도 삭제
+                            </button>
+                          </>
+                        ) : currentMap ? (
+                          <p className="col-span-2 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-300">
+                            지도 설정과 삭제는 소유자만 사용할 수 있습니다.
+                          </p>
+                        ) : null}
+                      </div>
+                    </>
                   ) : (
-                    <div className="mt-3 rounded-2xl border border-white/15 bg-black/25 px-4 py-3 text-sm text-slate-200">
-                      아직 사용할 수 있는 지도가 없습니다.
-                    </div>
-                  )}
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!authUser) {
-                          setStatusMessage("지도를 만들려면 먼저 로그인해 주세요.");
-                          setActiveDrawerTab("account");
-                          return;
-                        }
-
-                        setIsCreateOpen(true);
-                      }}
-                      disabled={!authUser}
-                      className="rounded-2xl bg-sky-400 px-4 py-3 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
-                    >
-                      새 지도
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsEditOpen(true)}
-                      disabled={currentMap?.role !== "owner"}
-                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:text-slate-500"
-                    >
-                      지도 설정
-                    </button>
-                    {currentMap?.role === "owner" ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => setIsShareOpen(true)}
-                          className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white"
-                        >
-                          공유 관리
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDeleteConfirmText("");
-                            setDeleteMessage(null);
-                            setIsDeleteOpen(true);
-                          }}
-                          className="rounded-2xl border border-rose-300/20 bg-rose-500/10 px-4 py-3 text-sm font-semibold text-rose-200"
-                        >
-                          지도 삭제
-                        </button>
-                      </>
-                    ) : currentMap ? (
-                      <p className="col-span-2 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-300">
-                        지도 설정과 삭제는 소유자만 사용할 수 있습니다.
+                    <>
+                      <h3 className="mt-2 truncate text-lg font-semibold">선택된 지도 없음</h3>
+                      <p className="mt-1 text-sm text-slate-300">
+                        지도를 만들려면 먼저 로그인해 주세요.
                       </p>
-                    ) : null}
-                  </div>
-                  {!authUser ? (
-                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
-                      <p className="text-sm text-slate-300">
-                        로그인하면 방문 기록과 일기를 저장할 수 있습니다.
-                      </p>
-                      <div className="mt-3 flex gap-2">
-                        <Link href="/login" className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950">
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        <Link href="/login" className="rounded-2xl bg-sky-400 px-4 py-3 text-center text-sm font-semibold text-slate-950">
                           로그인
                         </Link>
-                        <Link href="/signup" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white">
+                        <Link href="/signup" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-sm font-semibold text-white">
                           회원가입
                         </Link>
                       </div>
-                    </div>
-                  ) : null}
+                    </>
+                  )}
                 </section>
               </div>
               {activeDrawerTab === "map" ? (
@@ -1332,22 +1327,7 @@ export default function NaverMap() {
                         ) : null}
                       </div>
                     </>
-                  ) : (
-                    <section className="rounded-[24px] border border-white/10 bg-white/5 p-4">
-                      <h3 className="text-lg font-semibold">로그인이 필요합니다</h3>
-                      <p className="mt-2 text-sm leading-6 text-slate-300">
-                        로그인하면 지도 생성, 기록 저장, 사진 업로드를 사용할 수 있습니다.
-                      </p>
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <Link href="/login" className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950">
-                          로그인
-                        </Link>
-                        <Link href="/signup" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white">
-                          회원가입
-                        </Link>
-                      </div>
-                    </section>
-                  )}
+                  ) : null}
                 </div>
               ) : null}
 
@@ -1478,16 +1458,7 @@ export default function NaverMap() {
                         {isAuthSubmitting ? "로그아웃 중" : "로그아웃"}
                       </button>
                     </div>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      <Link href="/login" className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950">
-                        로그인
-                      </Link>
-                      <Link href="/signup" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white">
-                        회원가입
-                      </Link>
-                    </div>
-                  )}
+                  ) : null}
                   {authMessage ? (
                     <p className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200">
                       {authMessage}
@@ -1496,8 +1467,8 @@ export default function NaverMap() {
                 </div>
               ) : null}
             </div>
-            <div className="border-t border-white/10 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-              {authUser ? (
+            {authUser ? (
+              <div className="border-t border-white/10 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
                 <div className="grid grid-cols-2 gap-2">
                   <Link href="/profile" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-sm font-semibold text-white">
                     프로필
@@ -1511,17 +1482,8 @@ export default function NaverMap() {
                     {isAuthSubmitting ? "로그아웃 중" : "로그아웃"}
                   </button>
                 </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  <Link href="/login" className="rounded-2xl bg-sky-400 px-4 py-3 text-center text-sm font-semibold text-slate-950">
-                    로그인
-                  </Link>
-                  <Link href="/signup" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-sm font-semibold text-white">
-                    회원가입
-                  </Link>
-                </div>
-              )}
-            </div>
+              </div>
+            ) : null}
           </aside>
         </div>
       ) : null}
