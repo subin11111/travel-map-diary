@@ -32,3 +32,10 @@ img {
   display: block;
   max-width: 100%;
 }
+
+.maplibre-gl-transparent,
+.maplibre-gl-transparent .maplibregl-map,
+.maplibre-gl-transparent .maplibregl-canvas,
+.maplibre-gl-transparent .maplibregl-canvas-container {
+  background: transparent !important;
+}
