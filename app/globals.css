@@ -19,6 +19,7 @@
 
 html {
   background: var(--background);
+  overscroll-behavior: none;
 }
 
 body {
@@ -26,6 +27,7 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  overscroll-behavior: none;
 }
 
 img {
@@ -39,6 +41,11 @@ img {
 .maplibre-gl-transparent .maplibregl-canvas-container {
   background: transparent !important;
   opacity: 1 !important;
-  pointer-events: auto !important;
+  pointer-events: none !important;
   visibility: visible !important;
+}
+
+.map-interaction-surface {
+  overscroll-behavior: contain;
+  touch-action: none;
 }

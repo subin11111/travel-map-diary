@@ -927,6 +927,7 @@ export default function NaverMap() {
     let resizeObserver: ResizeObserver | null = null;
     let removeManualHitTest: (() => void) | null = null;
     let removeWindowResizeListener: (() => void) | null = null;
+    let removeMapGestureGuards: (() => void) | null = null;
 
     function syncMapElementSizes() {
       const rootRect = mapRef.current?.getBoundingClientRect();
@@ -947,7 +948,7 @@ export default function NaverMap() {
       overlayMapElementRef.current.style.background = DEBUG_OVERLAY_BACKGROUND
         ? "rgba(255, 0, 0, 0.08)"
         : "transparent";
-      overlayMapElementRef.current.style.pointerEvents = "auto";
+      overlayMapElementRef.current.style.pointerEvents = "none";
       overlayMapElementRef.current.style.opacity = "1";
       overlayMapElementRef.current.style.visibility = "visible";
       overlayMapElementRef.current.style.width = `${rootRect.width}px`;
@@ -977,9 +978,49 @@ export default function NaverMap() {
       elements.forEach((element) => {
         element.style.background = "transparent";
         element.style.opacity = "1";
-        element.style.pointerEvents = "auto";
+        element.style.pointerEvents = "none";
         element.style.visibility = "visible";
       });
+    }
+
+    function installMapGestureGuards() {
+      const element = mapRef.current;
+
+      if (!element || removeMapGestureGuards) {
+        return;
+      }
+
+      const stopBrowserViewportGesture = (event: WheelEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
+      };
+      const stopBrowserZoomGesture = (event: WheelEvent) => {
+        if (event.ctrlKey || event.metaKey) {
+          event.preventDefault();
+        }
+      };
+      const stopBrowserTouchGesture = (event: TouchEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
+      };
+      const stopSafariGesture = (event: Event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      };
+
+      element.addEventListener("wheel", stopBrowserZoomGesture, { capture: true, passive: false });
+      element.addEventListener("wheel", stopBrowserViewportGesture, { passive: false });
+      element.addEventListener("touchmove", stopBrowserTouchGesture, { passive: false });
+      element.addEventListener("gesturestart", stopSafariGesture, { passive: false });
+      element.addEventListener("gesturechange", stopSafariGesture, { passive: false });
+
+      removeMapGestureGuards = () => {
+        element.removeEventListener("wheel", stopBrowserZoomGesture, { capture: true });
+        element.removeEventListener("wheel", stopBrowserViewportGesture);
+        element.removeEventListener("touchmove", stopBrowserTouchGesture);
+        element.removeEventListener("gesturestart", stopSafariGesture);
+        element.removeEventListener("gesturechange", stopSafariGesture);
+      };
     }
 
     function logOverlayStacking(label: string, map: MapLibreMap) {
@@ -1035,6 +1076,7 @@ export default function NaverMap() {
       }
 
       const naverApi = naver;
+      installMapGestureGuards();
       const rootRect = syncMapElementSizes();
       const naverContainerRect = naverMapElementRef.current.getBoundingClientRect();
 
@@ -1391,18 +1433,19 @@ export default function NaverMap() {
             debugFixedOverlayView: DEBUG_FIXED_OVERLAY_VIEW,
           });
 
-          if (overlayMapElementRef.current) {
+          if (mapRef.current && overlayMapElementRef.current) {
             let lastManualHitLogTime = 0;
-            const manualHitTestElement = overlayMapElementRef.current;
-            const handleManualHitTest = (event: MouseEvent) => {
-              const now = Date.now();
+            let hitTestRaf: number | null = null;
+            let pendingMouseMoveEvent: MouseEvent | null = null;
+            const manualHitTestElement = mapRef.current;
 
-              if (now - lastManualHitLogTime < 500) {
-                return;
+            const getFeatureAtPointer = (event: MouseEvent) => {
+              const rect = overlayMapElementRef.current?.getBoundingClientRect();
+
+              if (!rect) {
+                return null;
               }
 
-              lastManualHitLogTime = now;
-              const rect = manualHitTestElement.getBoundingClientRect();
               const point: [number, number] = [
                 event.clientX - rect.left,
                 event.clientY - rect.top,
@@ -1411,16 +1454,109 @@ export default function NaverMap() {
                 layers: [EUPMYEONDONG_FILL_LAYER_ID],
               });
 
-              console.info("[Manual hit test]", {
-                count: features.length,
-                label: getBoundaryFeatureProperties(features[0] as BoundaryFeature)?.regionLabel,
-                properties: features[0]?.properties,
-              });
+              return features[0] ?? null;
             };
 
-            manualHitTestElement.addEventListener("mousemove", handleManualHitTest);
+            const selectBoundaryFeature = (feature: unknown) => {
+              const properties = getBoundaryFeatureProperties(feature as BoundaryFeature);
+
+              if (!properties) {
+                return;
+              }
+
+              const currentUser = authUserRef.current;
+              const selectedMap = currentMapRef.current;
+
+              if (!currentUser) {
+                setStatusMessage("濡쒓렇?명븯硫?媛쒖씤 湲곕줉???④만 ???덉뒿?덈떎.");
+                return;
+              }
+
+              if (!selectedMap) {
+                setStatusMessage("癒쇱? ?ъ슜??吏?꾨? ?좏깮?섍굅????吏?꾨? 留뚮뱾??二쇱꽭??");
+                return;
+              }
+
+              const { dongCode, dongName, regionLabel, sigCode } = properties;
+              const currentVisitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
+              selectedDongCodeRef.current = dongCode;
+              setSelectedDong({ dongCode, dongName, regionLabel, sigCode, visitCount: currentVisitCount });
+              setIsDongPanelOpen(true);
+              setIsDrawerOpen(false);
+              updateBoundaryLayerStyles();
+
+              if (clickPulseTimerRef.current) {
+                clearTimeout(clickPulseTimerRef.current);
+              }
+
+              clickPulseTimerRef.current = setTimeout(() => {
+                clearClickPulse();
+              }, 380);
+            };
+
+            const runMouseMoveHitTest = () => {
+              hitTestRaf = null;
+
+              if (!pendingMouseMoveEvent) {
+                return;
+              }
+
+              const feature = getFeatureAtPointer(pendingMouseMoveEvent);
+              const properties = getBoundaryFeatureProperties(feature as BoundaryFeature);
+              const now = Date.now();
+
+              setHoverLabel(properties?.regionLabel ?? null);
+              manualHitTestElement.style.cursor = properties ? "pointer" : "";
+
+              if (now - lastManualHitLogTime >= 500) {
+                lastManualHitLogTime = now;
+                console.info("[Manual hit test]", {
+                  count: feature ? 1 : 0,
+                  label: properties?.regionLabel,
+                  properties: feature?.properties,
+                });
+              }
+            };
+
+            const handleManualMouseMove = (event: MouseEvent) => {
+              pendingMouseMoveEvent = event;
+
+              if (hitTestRaf !== null) {
+                return;
+              }
+
+              hitTestRaf = window.requestAnimationFrame(runMouseMoveHitTest);
+            };
+
+            const handleManualMouseLeave = () => {
+              pendingMouseMoveEvent = null;
+              setHoverLabel(null);
+              manualHitTestElement.style.cursor = "";
+            };
+
+            const handleManualClick = (event: MouseEvent) => {
+              const feature = getFeatureAtPointer(event);
+
+              console.info("[Boundary click]", feature?.properties);
+              selectBoundaryFeature(feature);
+            };
+
+            manualHitTestElement.addEventListener("mousemove", handleManualMouseMove, {
+              capture: true,
+            });
+            manualHitTestElement.addEventListener("mouseleave", handleManualMouseLeave);
+            manualHitTestElement.addEventListener("click", handleManualClick, { capture: true });
             removeManualHitTest = () => {
-              manualHitTestElement.removeEventListener("mousemove", handleManualHitTest);
+              if (hitTestRaf !== null) {
+                window.cancelAnimationFrame(hitTestRaf);
+              }
+              manualHitTestElement.removeEventListener("mousemove", handleManualMouseMove, {
+                capture: true,
+              });
+              manualHitTestElement.removeEventListener("mouseleave", handleManualMouseLeave);
+              manualHitTestElement.removeEventListener("click", handleManualClick, {
+                capture: true,
+              });
             };
           }
 
@@ -1498,6 +1634,8 @@ export default function NaverMap() {
       }
       removeManualHitTest?.();
       removeManualHitTest = null;
+      removeMapGestureGuards?.();
+      removeMapGestureGuards = null;
       removeWindowResizeListener?.();
       removeWindowResizeListener = null;
       if ((window as NaverWindow).__setOverlayZoomOffset) {
@@ -2416,7 +2554,11 @@ export default function NaverMap() {
             </div>
           </div>
           <div className="relative min-h-0 flex-1 overflow-hidden">
-            <div ref={mapRef} data-testid="map-viewport" className="relative h-full w-full">
+            <div
+              ref={mapRef}
+              data-testid="map-viewport"
+              className="map-interaction-surface relative h-full w-full overflow-hidden"
+            >
               <div
                 ref={naverMapElementRef}
                 className={`absolute inset-0 z-0 ${DEBUG_MAP_MODE === "overlay-only" ? "opacity-0" : ""}`}
@@ -2424,7 +2566,7 @@ export default function NaverMap() {
               />
               <div
                 ref={overlayMapElementRef}
-                className={`maplibre-gl-transparent pointer-events-auto absolute inset-0 z-20 ${
+                className={`maplibre-gl-transparent pointer-events-none absolute inset-0 z-20 ${
                   DEBUG_MAP_MODE === "naver-only" ? "hidden" : ""
                 }`}
                 style={{
@@ -2432,7 +2574,7 @@ export default function NaverMap() {
                   height: "100%",
                   inset: 0,
                   opacity: 1,
-                  pointerEvents: "auto",
+                  pointerEvents: "none",
                   position: "absolute",
                   visibility: "visible",
                   width: "100%",
