@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
+import AppMenu from "@/components/AppMenu";
 
 type VisitStyle = {
   fillColor: string;
@@ -149,9 +151,6 @@ export default function NaverMap() {
   const clickPulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [authUser, setAuthUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [authEmail, setAuthEmail] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [isTimelineOpen, setIsTimelineOpen] = useState(false);
@@ -308,7 +307,6 @@ export default function NaverMap() {
       const currentUser = data.session?.user ?? null;
       setAuthUser(currentUser);
       void syncUserScopedMapState(currentUser);
-      setAuthLoading(false);
     }
 
     void initializeAuth();
@@ -319,7 +317,6 @@ export default function NaverMap() {
       const currentUser = session?.user ?? null;
       setAuthUser(currentUser);
       void syncUserScopedMapState(currentUser);
-      setAuthLoading(false);
     });
 
     return () => {
@@ -636,11 +633,10 @@ export default function NaverMap() {
 
       setStatusMessage("동 일기와 사진이 저장되었습니다.");
 
-      // close modal if open
       setIsModalOpen(false);
     } catch (error) {
       console.error("Failed to save diary:", error);
-      setStatusMessage("일기 저장에 실패했습니다. 콘솔을 확인하세요.");
+      setStatusMessage("일기 저장에 실패했습니다. 잠시 후 다시 시도하세요.");
     } finally {
       setIsSavingDiary(false);
     }
@@ -689,45 +685,6 @@ export default function NaverMap() {
     setPhotoLink("");
   }
 
-  async function handleAuthSubmit(mode: "login" | "signup") {
-    const email = authEmail.trim();
-
-    if (!email || !authPassword) {
-      setAuthMessage("이메일과 비밀번호를 입력하세요.");
-      return;
-    }
-
-    setIsAuthSubmitting(true);
-    setAuthMessage(null);
-
-    try {
-      if (mode === "login") {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password: authPassword,
-        });
-
-        if (error) throw error;
-
-        setAuthMessage("로그인되었습니다.");
-      } else {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password: authPassword,
-        });
-
-        if (error) throw error;
-
-        setAuthMessage("가입 요청을 보냈습니다. 이메일 확인이 필요한 경우 메일을 확인하세요.");
-      }
-    } catch (error) {
-      console.error("Auth failed:", error);
-      setAuthMessage("로그인/회원가입에 실패했습니다. 이메일과 비밀번호를 다시 확인하세요.");
-    } finally {
-      setIsAuthSubmitting(false);
-    }
-  }
-
   async function handleLogout() {
     setIsAuthSubmitting(true);
     setAuthMessage(null);
@@ -738,8 +695,6 @@ export default function NaverMap() {
       if (error) throw error;
 
       setAuthMessage("로그아웃되었습니다.");
-      setAuthEmail("");
-      setAuthPassword("");
     } catch (error) {
       console.error("Logout failed:", error);
       setAuthMessage("로그아웃에 실패했습니다.");
@@ -783,6 +738,7 @@ export default function NaverMap() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(237,246,255,0.95),_rgba(247,250,252,1)_34%,_rgba(232,238,252,0.92)_100%)] text-slate-900">
+      <AppMenu />
       {isModalOpen && selectedDong ? (
         <div className="fixed left-0 top-0 z-50 flex h-full w-full items-center justify-center bg-black/50 p-4">
           <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-6">
@@ -895,10 +851,16 @@ export default function NaverMap() {
           </div>
           <div className="relative min-h-[50vh] flex-1 overflow-hidden sm:min-h-[54vh] lg:min-h-0">
             <div ref={mapRef} className="h-full w-full min-h-[50vh] sm:min-h-[54vh] lg:min-h-0" />
-            <div className="pointer-events-none absolute left-3 top-3 z-20 hidden max-w-[calc(100%-1.5rem)] flex-col gap-2 sm:flex sm:max-w-[320px]">
-              <div className="rounded-2xl border border-white/70 bg-white/90 px-4 py-3 text-sm font-medium text-slate-800 shadow-lg backdrop-blur">
+            <div className="pointer-events-none absolute left-3 top-3 z-20 flex max-w-[calc(100%-1.5rem)] flex-col gap-2 sm:left-4 sm:top-4 sm:max-w-[360px]">
+              <div className="hidden rounded-2xl border border-white/70 bg-white/90 px-4 py-3 text-sm font-medium text-slate-800 shadow-lg backdrop-blur sm:block">
                 {hoveredDongName ? `현재 보기: ${hoveredDongName}` : "동 위에 마우스를 올리면 이름이 표시됩니다."}
               </div>
+
+              {statusMessage ? (
+                <div className="rounded-2xl border border-sky-200 bg-white/90 px-4 py-3 text-sm text-slate-700 shadow-lg backdrop-blur">
+                  {statusMessage}
+                </div>
+              ) : null}
             </div>
 
             <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-1.5rem)] sm:bottom-4 sm:left-4">
@@ -921,17 +883,12 @@ export default function NaverMap() {
                   </div>
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
                     <span className="h-2 w-2 rounded-full border border-violet-500 bg-violet-500" />
-                    클릭 하이라이트
+                    선택한 동
                   </div>
                 </div>
               </div>
             </div>
 
-            {statusMessage ? (
-              <div className="absolute left-4 top-4 max-w-[320px] rounded-2xl border border-sky-200 bg-white/90 px-4 py-3 text-sm text-slate-700 shadow-lg backdrop-blur">
-                {statusMessage}
-              </div>
-            ) : null}
           </div>
         </section>
 
@@ -940,53 +897,28 @@ export default function NaverMap() {
             {!authUser ? (
               <div className="space-y-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
-                    로그인
-                  </p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">로그인 필요</p>
                   <h2 className="mt-2 text-xl font-semibold tracking-tight text-white sm:text-2xl">
-                    개인 지도 시작
+                    아이디로 시작하기
                   </h2>
                   <p className="mt-2 text-sm leading-6 text-slate-300">
-                    이메일로 로그인하면 나만의 방문 기록과 일기가 보입니다.
+                    로그인하면 방문 기록과 일기를 내 계정에 저장할 수 있습니다.
                   </p>
-                </div>
-
-                <div className="space-y-2">
-                  <input
-                    value={authEmail}
-                    onChange={(event) => setAuthEmail(event.target.value)}
-                    type="email"
-                    autoComplete="email"
-                    placeholder="이메일"
-                    className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-300"
-                  />
-                  <input
-                    value={authPassword}
-                    onChange={(event) => setAuthPassword(event.target.value)}
-                    type="password"
-                    autoComplete="current-password"
-                    placeholder="비밀번호"
-                    className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-300"
-                  />
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleAuthSubmit("login")}
-                    disabled={isAuthSubmitting || authLoading}
-                    className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
+                  <Link
+                    href="/login"
+                    className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-sky-300"
                   >
-                    {isAuthSubmitting ? "처리 중" : "로그인"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleAuthSubmit("signup")}
-                    disabled={isAuthSubmitting || authLoading}
-                    className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-white/10"
+                    로그인
+                  </Link>
+                  <Link
+                    href="/signup"
+                    className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
                   >
                     회원가입
-                  </button>
+                  </Link>
                 </div>
               </div>
             ) : (
@@ -996,10 +928,10 @@ export default function NaverMap() {
                     로그인됨
                   </p>
                   <h2 className="mt-2 text-xl font-semibold tracking-tight text-white sm:text-2xl">
-                    {authUser.email ?? "익명 계정"}
+                    {authUser.email ? authUser.email.split("@")[0] : "익명 계정"}
                   </h2>
                   <p className="mt-2 text-sm leading-6 text-slate-300">
-                    이 계정의 개인 여행 기록만 불러옵니다.
+                    내 여행 기록을 불러왔습니다.
                   </p>
                 </div>
                 <button
@@ -1039,7 +971,7 @@ export default function NaverMap() {
               </span>
             </button>
             <p className="mt-2 text-sm leading-6 text-slate-300 sm:text-[15px]">
-              지도를 클릭하면 모달이 열리고, 저장된 기록은 아래에서 확인할 수 있습니다.
+              지도를 클릭해 동을 선택하고, 저장된 기록을 아래에서 확인하세요.
             </p>
           </div>
 
