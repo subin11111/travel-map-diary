@@ -226,7 +226,7 @@ export default function NaverMap() {
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [isTimelineOpen, setIsTimelineOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [activeDrawerTab, setActiveDrawerTab] = useState<DrawerTab>("stats");
+  const [activeDrawerTab, setActiveDrawerTab] = useState<DrawerTab>("map");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
@@ -968,9 +968,11 @@ export default function NaverMap() {
     totalDongCount > 0 ? Math.round((visitStats.visitedDongCount / totalDongCount) * 100) : 0;
   const mapTitle = currentMap?.title ?? (isLoadingMaps ? "지도 불러오는 중" : "서울 동 단위 여행 일기");
   const drawerTabs: { id: DrawerTab; label: string }[] = [
+    { id: "map", label: "지도" },
     { id: "stats", label: "통계" },
     { id: "status", label: "현황" },
     { id: "records", label: "전체 기록" },
+    { id: "account", label: "계정" },
   ];
   const renderTimelineSortSelect = () => (
     <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
@@ -1117,7 +1119,7 @@ export default function NaverMap() {
                   닫기
                 </button>
               </div>
-              <div className="mt-4 grid grid-cols-3 gap-1 rounded-2xl bg-white/5 p-1">
+              <div className="mt-4 grid grid-cols-5 gap-1 rounded-2xl bg-white/5 p-1">
                 {drawerTabs.map((tab) => (
                   <button
                     key={tab.id}
@@ -1140,14 +1142,13 @@ export default function NaverMap() {
               <div className="mb-4 space-y-3">
                 <section className="rounded-[24px] border border-white/10 bg-white/5 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
-                    계정 / 지도 선택
+                    지도 선택
                   </p>
                   <h3 className="mt-2 truncate text-lg font-semibold">
-                    {authUser?.email ? authUser.email.split("@")[0] : "로그인 전"}
+                    {currentMap?.title ?? "선택된 지도 없음"}
                   </h3>
                   <p className="mt-1 truncate text-sm text-slate-300">
-                    {currentMap?.icon ? `${currentMap.icon} ` : ""}
-                    {currentMap?.title ?? "선택된 지도 없음"}
+                    {authUser ? "현재 사용할 지도를 선택하세요." : "지도를 만들려면 먼저 로그인해 주세요."}
                   </p>
                   {maps.length > 0 ? (
                     <select
@@ -1185,8 +1186,17 @@ export default function NaverMap() {
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => setIsCreateOpen(true)}
-                      className="rounded-2xl bg-sky-400 px-4 py-3 text-sm font-semibold text-slate-950"
+                      onClick={() => {
+                        if (!authUser) {
+                          setStatusMessage("지도를 만들려면 먼저 로그인해 주세요.");
+                          setActiveDrawerTab("account");
+                          return;
+                        }
+
+                        setIsCreateOpen(true);
+                      }}
+                      disabled={!authUser}
+                      className="rounded-2xl bg-sky-400 px-4 py-3 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
                     >
                       새 지도
                     </button>
@@ -1225,6 +1235,21 @@ export default function NaverMap() {
                       </p>
                     ) : null}
                   </div>
+                  {!authUser ? (
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+                      <p className="text-sm text-slate-300">
+                        로그인하면 방문 기록과 일기를 저장할 수 있습니다.
+                      </p>
+                      <div className="mt-3 flex gap-2">
+                        <Link href="/login" className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950">
+                          로그인
+                        </Link>
+                        <Link href="/signup" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white">
+                          회원가입
+                        </Link>
+                      </div>
+                    </div>
+                  ) : null}
                 </section>
               </div>
               {activeDrawerTab === "map" ? (
@@ -1470,6 +1495,32 @@ export default function NaverMap() {
                   ) : null}
                 </div>
               ) : null}
+            </div>
+            <div className="border-t border-white/10 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+              {authUser ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <Link href="/profile" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-sm font-semibold text-white">
+                    프로필
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    disabled={isAuthSubmitting}
+                    className="rounded-2xl border border-rose-300/20 bg-rose-500/10 px-4 py-3 text-sm font-semibold text-rose-200 disabled:cursor-not-allowed disabled:text-slate-400"
+                  >
+                    {isAuthSubmitting ? "로그아웃 중" : "로그아웃"}
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <Link href="/login" className="rounded-2xl bg-sky-400 px-4 py-3 text-center text-sm font-semibold text-slate-950">
+                    로그인
+                  </Link>
+                  <Link href="/signup" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-sm font-semibold text-white">
+                    회원가입
+                  </Link>
+                </div>
+              )}
             </div>
           </aside>
         </div>
