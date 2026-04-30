@@ -8,7 +8,6 @@ import { supabase } from "../lib/supabase";
 import MapCreateModal from "@/components/MapCreateModal";
 import MapEditModal from "@/components/MapEditModal";
 import MapShareModal from "@/components/MapShareModal";
-import MapSelector from "@/components/MapSelector";
 import { useTravelMaps } from "@/components/TravelMapProvider";
 import type { TravelMap } from "@/lib/travelMaps";
 
@@ -33,7 +32,7 @@ type VisitStats = {
   topVisitCount: number;
 };
 
-type DrawerTab = "map" | "stats" | "status" | "records" | "account";
+type DrawerTab = "map" | "settings" | "stats" | "status" | "records" | "account";
 type TimelineSort = "entry-desc" | "entry-asc" | "created-desc";
 
 type DongDiary = {
@@ -224,7 +223,6 @@ export default function NaverMap() {
   } = useTravelMaps();
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
-  const [isTimelineOpen, setIsTimelineOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeDrawerTab, setActiveDrawerTab] = useState<DrawerTab>("map");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -969,6 +967,7 @@ export default function NaverMap() {
   const mapTitle = currentMap?.title ?? (isLoadingMaps ? "지도 불러오는 중" : "서울 동 단위 여행 일기");
   const drawerTabs: { id: DrawerTab; label: string }[] = [
     { id: "map", label: "지도" },
+    { id: "settings", label: "설정" },
     { id: "stats", label: "통계" },
     { id: "status", label: "현황" },
     { id: "records", label: "전체 기록" },
@@ -1119,7 +1118,70 @@ export default function NaverMap() {
                   닫기
                 </button>
               </div>
-              <div className="mt-4 grid grid-cols-5 gap-1 rounded-2xl bg-white/5 p-1">
+              <section className="mt-4 rounded-[24px] border border-white/10 bg-white/5 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
+                  지도 선택
+                </p>
+                {authUser ? (
+                  <>
+                    <h3 className="mt-2 truncate text-lg font-semibold">
+                      {currentMap?.title ?? "선택된 지도 없음"}
+                    </h3>
+                    <p className="mt-1 truncate text-sm text-slate-300">
+                      현재 사용할 지도를 선택하세요.
+                    </p>
+                    {maps.length > 0 ? (
+                      <select
+                        value={currentMap?.id ?? ""}
+                        onChange={(event) => selectMap(event.target.value)}
+                        disabled={isLoadingMaps}
+                        className="mt-3 w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none focus:border-sky-300 disabled:cursor-not-allowed disabled:text-slate-400"
+                      >
+                        {ownedMaps.length > 0 ? (
+                          <optgroup label="내 지도">
+                            {ownedMaps.map((map) => (
+                              <option key={map.id} value={map.id}>
+                                {map.icon ? `${map.icon} ` : ""}
+                                {map.title}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null}
+                        {sharedMaps.length > 0 ? (
+                          <optgroup label="공유받은 지도">
+                            {sharedMaps.map((map) => (
+                              <option key={map.id} value={map.id}>
+                                {map.icon ? `${map.icon} ` : ""}
+                                {map.title}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null}
+                      </select>
+                    ) : (
+                      <div className="mt-3 rounded-2xl border border-white/15 bg-black/25 px-4 py-3 text-sm text-slate-200">
+                        아직 사용할 수 있는 지도가 없습니다.
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <h3 className="mt-2 truncate text-lg font-semibold">선택된 지도 없음</h3>
+                    <p className="mt-1 text-sm text-slate-300">
+                      지도를 만들려면 먼저 로그인해 주세요.
+                    </p>
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <Link href="/login" className="rounded-2xl bg-sky-400 px-4 py-3 text-center text-sm font-semibold text-slate-950">
+                        로그인
+                      </Link>
+                      <Link href="/signup" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-sm font-semibold text-white">
+                        회원가입
+                      </Link>
+                    </div>
+                  </>
+                )}
+              </section>
+              <div className="mt-4 grid grid-cols-3 gap-1 rounded-2xl bg-white/5 p-1">
                 {drawerTabs.map((tab) => (
                   <button
                     key={tab.id}
@@ -1139,194 +1201,91 @@ export default function NaverMap() {
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-              <div className="mb-4 space-y-3">
-                <section className="rounded-[24px] border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
-                    지도 선택
-                  </p>
-                  {authUser ? (
-                    <>
-                      <h3 className="mt-2 truncate text-lg font-semibold">
-                        {currentMap?.title ?? "선택된 지도 없음"}
-                      </h3>
-                      <p className="mt-1 truncate text-sm text-slate-300">
-                        현재 사용할 지도를 선택하세요.
-                      </p>
-                      {maps.length > 0 ? (
-                        <select
-                          value={currentMap?.id ?? ""}
-                          onChange={(event) => selectMap(event.target.value)}
-                          disabled={isLoadingMaps}
-                          className="mt-3 w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none focus:border-sky-300 disabled:cursor-not-allowed disabled:text-slate-400"
-                        >
-                          {ownedMaps.length > 0 ? (
-                            <optgroup label="내 지도">
-                              {ownedMaps.map((map) => (
-                                <option key={map.id} value={map.id}>
-                                  {map.icon ? `${map.icon} ` : ""}
-                                  {map.title}
-                                </option>
-                              ))}
-                            </optgroup>
-                          ) : null}
-                          {sharedMaps.length > 0 ? (
-                            <optgroup label="공유받은 지도">
-                              {sharedMaps.map((map) => (
-                                <option key={map.id} value={map.id}>
-                                  {map.icon ? `${map.icon} ` : ""}
-                                  {map.title}
-                                </option>
-                              ))}
-                            </optgroup>
-                          ) : null}
-                        </select>
-                      ) : (
-                        <div className="mt-3 rounded-2xl border border-white/15 bg-black/25 px-4 py-3 text-sm text-slate-200">
-                          아직 사용할 수 있는 지도가 없습니다.
-                        </div>
-                      )}
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setIsCreateOpen(true)}
-                          className="rounded-2xl bg-sky-400 px-4 py-3 text-sm font-semibold text-slate-950"
-                        >
-                          새 지도
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setIsEditOpen(true)}
-                          disabled={currentMap?.role !== "owner"}
-                          className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:text-slate-500"
-                        >
-                          지도 설정
-                        </button>
-                        {currentMap?.role === "owner" ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => setIsShareOpen(true)}
-                              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white"
-                            >
-                              공유 관리
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setDeleteConfirmText("");
-                                setDeleteMessage(null);
-                                setIsDeleteOpen(true);
-                              }}
-                              className="rounded-2xl border border-rose-300/20 bg-rose-500/10 px-4 py-3 text-sm font-semibold text-rose-200"
-                            >
-                              지도 삭제
-                            </button>
-                          </>
-                        ) : currentMap ? (
-                          <p className="col-span-2 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-300">
-                            지도 설정과 삭제는 소유자만 사용할 수 있습니다.
-                          </p>
-                        ) : null}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <h3 className="mt-2 truncate text-lg font-semibold">선택된 지도 없음</h3>
-                      <p className="mt-1 text-sm text-slate-300">
-                        지도를 만들려면 먼저 로그인해 주세요.
-                      </p>
-                      <div className="mt-4 grid grid-cols-2 gap-2">
-                        <Link href="/login" className="rounded-2xl bg-sky-400 px-4 py-3 text-center text-sm font-semibold text-slate-950">
-                          로그인
-                        </Link>
-                        <Link href="/signup" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-sm font-semibold text-white">
-                          회원가입
-                        </Link>
-                      </div>
-                    </>
-                  )}
-                </section>
-              </div>
               {activeDrawerTab === "map" ? (
                 <div className="space-y-4">
                   {authUser ? (
-                    <>
-                      <section className="rounded-[24px] border border-white/10 bg-white/5 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
-                          현재 지도
+                    <section className="rounded-[24px] border border-white/10 bg-white/5 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
+                        현재 지도
+                      </p>
+                      <h3 className="mt-2 text-lg font-semibold">
+                        {currentMap?.icon ? `${currentMap.icon} ` : ""}
+                        {currentMap?.title ?? "지도 없음"}
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-slate-300">
+                        {currentMap?.description ??
+                          (currentMap ? "지도 설명이 없습니다." : "지도를 만들거나 선택하세요.")}
+                      </p>
+                      {mapError ? (
+                        <p className="mt-3 rounded-2xl border border-sky-300/30 bg-sky-950/40 px-4 py-3 text-sm font-medium text-slate-100">
+                          {mapError}
                         </p>
-                        <h3 className="mt-2 text-lg font-semibold">
-                          {currentMap?.icon ? `${currentMap.icon} ` : ""}
-                          {currentMap?.title ?? "지도 없음"}
-                        </h3>
-                        <p className="mt-2 text-sm leading-6 text-slate-300">
-                          {currentMap?.description ??
-                            (currentMap ? "지도 설명이 없습니다." : "지도를 만들거나 선택하세요.")}
+                      ) : null}
+                    </section>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {activeDrawerTab === "settings" ? (
+                <div className="space-y-4">
+                  <section className="rounded-[24px] border border-white/10 bg-white/5 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
+                      지도 설정
+                    </p>
+                    <h3 className="mt-2 text-lg font-semibold">
+                      {currentMap?.icon ? `${currentMap.icon} ` : ""}
+                      {currentMap?.title ?? "선택된 지도 없음"}
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">
+                      {authUser
+                        ? "지도 생성, 정보 수정, 공유, 삭제를 이곳에서 관리합니다."
+                        : "로그인하면 지도 관리 기능을 사용할 수 있습니다."}
+                    </p>
+                  </section>
+
+                  {authUser ? (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsCreateOpen(true)}
+                        className="rounded-2xl bg-sky-400 px-4 py-3 text-sm font-semibold text-slate-950"
+                      >
+                        새 지도 만들기
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditOpen(true)}
+                        disabled={currentMap?.role !== "owner"}
+                        className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:text-slate-500"
+                      >
+                        지도 정보 수정
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsShareOpen(true)}
+                        disabled={currentMap?.role !== "owner"}
+                        className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:text-slate-500 sm:col-span-2"
+                      >
+                        지도 공유 관리
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeleteConfirmText("");
+                          setDeleteMessage(null);
+                          setIsDeleteOpen(true);
+                        }}
+                        disabled={currentMap?.role !== "owner"}
+                        className="rounded-2xl border border-rose-300/20 bg-rose-500/10 px-4 py-3 text-sm font-semibold text-rose-200 disabled:cursor-not-allowed disabled:text-slate-500 sm:col-span-2"
+                      >
+                        지도 삭제
+                      </button>
+                      {currentMap && currentMap.role !== "owner" ? (
+                        <p className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-300 sm:col-span-2">
+                          지도 정보 수정, 공유, 삭제는 소유자만 사용할 수 있습니다.
                         </p>
-                        {mapError ? (
-                          <p className="mt-3 rounded-2xl border border-sky-300/30 bg-sky-950/40 px-4 py-3 text-sm font-medium text-slate-100">
-                            {mapError}
-                          </p>
-                        ) : null}
-                      </section>
-                      <section className="rounded-[24px] border border-white/10 bg-white/5 p-4">
-                        <label className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
-                          지도 선택
-                        </label>
-                        {maps.length > 0 ? (
-                          <select
-                            value={currentMap?.id ?? ""}
-                            onChange={(event) => selectMap(event.target.value)}
-                            disabled={isLoadingMaps}
-                            className="mt-3 w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none focus:border-sky-300 disabled:cursor-not-allowed disabled:text-slate-400"
-                          >
-                            {ownedMaps.length > 0 ? (
-                              <optgroup label="내 지도">
-                                {ownedMaps.map((map) => (
-                                  <option key={map.id} value={map.id}>
-                                    {map.icon ? `${map.icon} ` : ""}
-                                    {map.title}
-                                  </option>
-                                ))}
-                              </optgroup>
-                            ) : null}
-                            {sharedMaps.length > 0 ? (
-                              <optgroup label="공유 받은 지도">
-                                {sharedMaps.map((map) => (
-                                  <option key={map.id} value={map.id}>
-                                    {map.icon ? `${map.icon} ` : ""}
-                                    {map.title}
-                                  </option>
-                                ))}
-                              </optgroup>
-                            ) : null}
-                          </select>
-                        ) : (
-                          <div className="mt-3 rounded-2xl border border-white/15 bg-black/25 px-4 py-3 text-sm text-slate-200">
-                            아직 생성된 지도가 없습니다.
-                          </div>
-                        )}
-                      </section>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        <button type="button" onClick={() => setIsCreateOpen(true)} className="rounded-2xl bg-sky-400 px-4 py-3 text-sm font-semibold text-slate-950">
-                          새 지도 만들기
-                        </button>
-                        {currentMap?.role === "owner" ? (
-                          <>
-                            <button type="button" onClick={() => setIsEditOpen(true)} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white">
-                              지도 정보 수정
-                            </button>
-                            <button type="button" onClick={() => setIsShareOpen(true)} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white sm:col-span-2">
-                              지도 공유 관리
-                            </button>
-                          </>
-                        ) : currentMap ? (
-                          <p className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-300 sm:col-span-2">
-                            지도 정보 수정은 소유자만 가능합니다.
-                          </p>
-                        ) : null}
-                      </div>
-                    </>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
               ) : null}
@@ -1467,23 +1426,6 @@ export default function NaverMap() {
                 </div>
               ) : null}
             </div>
-            {authUser ? (
-              <div className="border-t border-white/10 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-                <div className="grid grid-cols-2 gap-2">
-                  <Link href="/profile" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-sm font-semibold text-white">
-                    프로필
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    disabled={isAuthSubmitting}
-                    className="rounded-2xl border border-rose-300/20 bg-rose-500/10 px-4 py-3 text-sm font-semibold text-rose-200 disabled:cursor-not-allowed disabled:text-slate-400"
-                  >
-                    {isAuthSubmitting ? "로그아웃 중" : "로그아웃"}
-                  </button>
-                </div>
-              </div>
-            ) : null}
           </aside>
         </div>
       ) : null}
@@ -1664,167 +1606,6 @@ export default function NaverMap() {
 
           </div>
         </section>
-
-        <aside
-          data-testid="mobile-side-panel"
-          className="hidden min-h-0 flex-col gap-4 rounded-[28px] border border-slate-200/80 bg-slate-950 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 text-slate-100 shadow-[0_30px_80px_rgba(15,23,42,0.2)] sm:pb-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)]"
-        >
-          <div className="rounded-[24px] border border-white/10 bg-white/5 p-4 sm:p-5">
-            {!authUser ? (
-              <div className="space-y-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">로그인 필요</p>
-                  <h2 className="mt-2 text-xl font-semibold tracking-tight text-white sm:text-2xl">
-                    아이디로 시작하기
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">
-                    로그인하면 방문 기록과 일기를 내 계정에 저장할 수 있습니다.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <Link
-                    href="/login"
-                    className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-sky-300"
-                  >
-                    로그인
-                  </Link>
-                  <Link
-                    href="/signup"
-                    className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
-                  >
-                    회원가입
-                  </Link>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
-                    로그인됨
-                  </p>
-                  <h2 className="mt-2 text-xl font-semibold tracking-tight text-white sm:text-2xl">
-                    {authUser.email ? authUser.email.split("@")[0] : "익명 계정"}
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">
-                    {isLoadingMaps ? "지도 목록을 불러오는 중입니다." : "내 여행 기록을 불러왔습니다."}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  disabled={isAuthSubmitting}
-                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-white/10"
-                >
-                  로그아웃
-                </button>
-              </div>
-            )}
-
-            {authMessage ? (
-              <p className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200">
-                {authMessage}
-              </p>
-            ) : null}
-          </div>
-
-          <MapSelector />
-
-          <div className="rounded-[24px] border border-white/10 bg-white/5 p-4 sm:p-5">
-            <button
-              type="button"
-              onClick={() => setIsTimelineOpen((current) => !current)}
-              className="flex w-full items-center justify-between gap-3 text-left lg:cursor-default"
-            >
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
-                  동별 기록
-                </p>
-                <h2 className="mt-2 text-xl font-semibold tracking-tight text-white sm:text-2xl">
-                  타임라인
-                </h2>
-              </div>
-              <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs font-medium text-slate-200 lg:hidden">
-                {isTimelineOpen ? "접기" : "펼치기"}
-              </span>
-            </button>
-            <p className="mt-2 text-sm leading-6 text-slate-300 sm:text-[15px]">
-              지도를 클릭해 동을 선택하고, 저장된 기록을 아래에서 확인하세요.
-            </p>
-          </div>
-
-          <div
-            className={`min-h-0 flex-1 overflow-hidden rounded-[24px] border border-white/10 bg-white/5 p-4 sm:p-5 ${
-              isTimelineOpen ? "block" : "hidden lg:block"
-            }`}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
-                  저장된 기록
-                </p>
-                <h3 className="mt-2 text-base font-semibold text-white sm:text-lg">동별 타임라인</h3>
-              </div>
-              <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-slate-200">
-                {isLoadingDiaries ? "불러오는 중" : `${diaries.length}개`}
-              </span>
-            </div>
-            {selectedDong ? <div className="mt-4">{renderTimelineSortSelect()}</div> : null}
-
-            <div className="mt-4 max-h-[30vh] space-y-3 overflow-y-auto pr-1 sm:max-h-[34vh] lg:max-h-[calc(100vh-560px)]">
-              {!selectedDong ? (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-300">
-                  동을 먼저 선택하면 이곳에 일기와 사진이 쌓입니다.
-                </div>
-              ) : isLoadingDiaries ? (
-                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-300">
-                  일기를 불러오는 중입니다.
-                </div>
-              ) : diaries.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-300">
-                  아직 작성된 일기가 없습니다. 첫 기록을 남겨보세요.
-                </div>
-              ) : (
-                sortedDiaries.map((diary) => (
-                  <article
-                    key={diary.id}
-                    className="overflow-hidden rounded-2xl border border-white/10 bg-black/20"
-                  >
-                    {diary.photo_url ? (
-                      <div className="relative h-40 w-full">
-                        <Image
-                          src={diary.photo_url}
-                          alt={diary.title ?? diary.dong_name}
-                          fill
-                          unoptimized
-                          className="object-cover"
-                        />
-                      </div>
-                    ) : null}
-                    <div className="space-y-3 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <h4 className="text-base font-semibold text-white">
-                            {diary.title ?? diary.dong_name}
-                          </h4>
-                          <p className="mt-1 text-xs text-slate-400">
-                            기록 날짜: {formatEntryDate(diary.entry_date, diary.created_at)}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            작성: {formatDateTime(diary.created_at)}
-                          </p>
-                        </div>
-                      </div>
-                      <p className="whitespace-pre-wrap text-sm leading-6 text-slate-200">
-                        {diary.content}
-                      </p>
-                    </div>
-                  </article>
-                ))
-              )}
-            </div>
-          </div>
-        </aside>
       </div>
       <MapCreateModal
         isOpen={isCreateOpen}
