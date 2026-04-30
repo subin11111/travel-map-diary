@@ -227,6 +227,19 @@ PMTiles property를 최신화하려면 다음 순서로 다시 생성합니다.
 - source zoom: min `5`, max `13`
 - properties: `sido_code`, `sido_name`, `sig_code`, `derived_sig_code`, `sig_name`, `emd_code`, `emd_name`, `full_name`, `object_id`
 
+### PMTiles 경계 seam 완화 정책
+
+읍면동 내부에 타일 경계 기준 직선이 보이면 PMTiles를 다시 생성해야 합니다. 현재 `npm run tiles:build`는 다음 정책을 사용합니다.
+
+- `emd_code` 기준 dissolve 전처리: `tmd_preprocess/eupmyeondong_dissolved.geojson` 생성
+- tippecanoe buffer: `--buffer=128`
+- 상세 경계 유지: `--no-line-simplification`, `--no-tiny-polygon-reduction`
+- feature/tile size drop 방지: `--no-feature-limit`, `--no-tile-size-limit`
+- shared border 처리: `--detect-shared-borders`
+- 기본 zoom: `-Z5 -z13`
+
+더 세밀한 경계가 필요하면 `npm run tiles:build -- -MaxZoom 14`로 재생성할 수 있습니다. 이 경우 프론트의 `EUPMYEONDONG_SOURCE_MAX_ZOOM`도 같은 값으로 맞춰야 합니다.
+
 PMTiles 파일이 없으면 전국 읍면동 경계가 표시되지 않습니다.
 
 ## 지도 데이터 파일 정책
