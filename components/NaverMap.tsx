@@ -81,6 +81,12 @@ type DongDiary = {
   created_at: string;
 };
 
+type DiaryEditForm = {
+  title: string;
+  content: string;
+  entryDate: string;
+};
+
 type BoundaryFeature = {
   properties: {
     emd_code?: string | number;
@@ -170,6 +176,7 @@ const DEBUG_OVERLAY_STACK = process.env.NEXT_PUBLIC_DEBUG_OVERLAY_STACK === "tru
 const DEBUG_MAP_OVERLAY = process.env.NEXT_PUBLIC_DEBUG_MAP_OVERLAY === "true";
 const DEBUG_MAP_SYNC = process.env.NEXT_PUBLIC_DEBUG_MAP_SYNC === "true";
 const DEBUG_REGION_LABEL = process.env.NEXT_PUBLIC_DEBUG_REGION_LABEL === "true";
+const DEBUG_REGION_STYLE = process.env.NEXT_PUBLIC_DEBUG_REGION_STYLE === "true";
 const OVERLAY_MOVING_OPACITY = "0.22";
 const OVERLAY_IDLE_OPACITY = "1";
 const TILE_FILE_CHECK_FAILED_MESSAGE = "PMTiles 파일을 찾지 못했습니다.";
@@ -185,37 +192,37 @@ const REGION_VISIT_COLORS = {
   default: {
     fillColor: "#F3F7FA",
     strokeColor: "#B6C3D1",
-    fillOpacity: 0.12,
-    strokeOpacity: 0.1,
-    strokeWeight: 0.45,
+    fillOpacity: 0.08,
+    strokeOpacity: 0.22,
+    strokeWeight: 0.4,
   },
   one: {
     fillColor: "#BDE8F5",
     strokeColor: "#BDE8F5",
-    fillOpacity: 0.35,
-    strokeOpacity: 0.28,
-    strokeWeight: 0.45,
+    fillOpacity: 0.22,
+    strokeOpacity: 0.3,
+    strokeWeight: 0.5,
   },
   twoToThree: {
     fillColor: "#4988C4",
     strokeColor: "#4988C4",
-    fillOpacity: 0.45,
-    strokeOpacity: 0.38,
-    strokeWeight: 0.6,
+    fillOpacity: 0.28,
+    strokeOpacity: 0.42,
+    strokeWeight: 0.7,
   },
   fourToSix: {
     fillColor: "#1C4D8D",
     strokeColor: "#1C4D8D",
-    fillOpacity: 0.55,
-    strokeOpacity: 0.48,
-    strokeWeight: 0.75,
+    fillOpacity: 0.34,
+    strokeOpacity: 0.52,
+    strokeWeight: 0.9,
   },
   sevenPlus: {
     fillColor: "#0F2854",
     strokeColor: "#0F2854",
-    fillOpacity: 0.65,
-    strokeOpacity: 0.58,
-    strokeWeight: 0.9,
+    fillOpacity: 0.42,
+    strokeOpacity: 0.68,
+    strokeWeight: 1.1,
   },
 } satisfies Record<string, VisitStyle>;
 
@@ -223,9 +230,9 @@ const REGION_STATUS_COLORS = {
   topStat: {
     fillColor: "#1C4D8D",
     strokeColor: "#0F2854",
-    fillOpacity: 0.6,
-    strokeOpacity: 1,
-    strokeWeight: 2.2,
+    fillOpacity: 0.3,
+    strokeOpacity: 0.46,
+    strokeWeight: 0.8,
   },
   selected: {
     fillColor: "#BDE8F5",
@@ -247,6 +254,10 @@ function getRegionStyleByVisitCount(visitCount: number): VisitStyle {
 
 function getVisitStyle(count: number): VisitStyle {
   return getRegionStyleByVisitCount(count);
+}
+
+function getRegionStyleByRecordCount(recordCount: number): VisitStyle {
+  return getRegionStyleByVisitCount(recordCount);
 }
 
 function getTopStatDongStyle(): VisitStyle {
@@ -775,6 +786,7 @@ export default function NaverMap() {
   const dongNameByCodeRef = useRef(new Map<string, string>());
   const topStatDongCodesRef = useRef(new Set<string>());
   const selectedDongCodeRef = useRef<string | null>(null);
+  const lastRegionStyleLogRef = useRef<string | null>(null);
   const authUserRef = useRef<User | null>(null);
   const currentMapRef = useRef<TravelMap | null>(null);
   const canEditCurrentMapRef = useRef(false);
@@ -814,6 +826,15 @@ export default function NaverMap() {
   const [isSavingDiary, setIsSavingDiary] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [overlayDebugInfo, setOverlayDebugInfo] = useState<OverlayDebugInfo | null>(null);
+  const [editingDiary, setEditingDiary] = useState<DongDiary | null>(null);
+  const [diaryEditForm, setDiaryEditForm] = useState<DiaryEditForm>({
+    title: "",
+    content: "",
+    entryDate: getTodayDateValue(),
+  });
+  const [isUpdatingDiary, setIsUpdatingDiary] = useState(false);
+  const [deletingDiary, setDeletingDiary] = useState<DongDiary | null>(null);
+  const [isDeletingDiary, setIsDeletingDiary] = useState(false);
   const [diaryTitle, setDiaryTitle] = useState("");
   const [diaryContent, setDiaryContent] = useState("");
   const [diaryEntryDate, setDiaryEntryDate] = useState(() => getTodayDateValue());
@@ -935,6 +956,32 @@ export default function NaverMap() {
     setHoveredDongName(name);
   }
 
+  function logRegionStyleDebug(dongCode: string, dongName: string) {
+    if (!DEBUG_REGION_STYLE) {
+      return;
+    }
+
+    const recordCount = visitCountByDongRef.current.get(dongCode) ?? 0;
+    const style = getRegionStyleByRecordCount(recordCount);
+    const logKey = `${dongCode}:${recordCount}:${style.fillOpacity}:${style.strokeOpacity}:${style.strokeWeight}`;
+
+    if (lastRegionStyleLogRef.current === logKey) {
+      return;
+    }
+
+    lastRegionStyleLogRef.current = logKey;
+    console.info("[RegionStyle]", {
+      emd_code: dongCode,
+      emd_name: dongName,
+      recordCount,
+      fillColor: style.fillColor,
+      fillOpacity: style.fillOpacity,
+      lineColor: style.strokeColor,
+      lineOpacity: style.strokeOpacity,
+      lineWidth: style.strokeWeight,
+    });
+  }
+
   const resetUserScopedMapState = useCallback(() => {
     visitCountByDongRef.current.clear();
     dongNameByCodeRef.current.clear();
@@ -949,6 +996,88 @@ export default function NaverMap() {
       topVisitCount: 0,
     });
   }, [updateBoundaryLayerStyles]);
+
+  function refreshVisitStatsFromCurrentCounts() {
+    const visitEntries = Array.from(visitCountByDongRef.current.entries());
+    const visitedDongCount = visitEntries.filter(([, count]) => count > 0).length;
+    const totalVisitCount = visitEntries.reduce((sum, [, count]) => sum + count, 0);
+    const topVisitEntry = visitEntries.reduce<[string, number] | null>(
+      (top, entry) => (entry[1] > (top?.[1] ?? 0) ? entry : top),
+      null
+    );
+    const topVisitCount = topVisitEntry?.[1] ?? 0;
+
+    topStatDongCodesRef.current =
+      topVisitCount > 0
+        ? new Set(
+            visitEntries
+              .filter(([, count]) => count === topVisitCount)
+              .map(([dongCode]) => dongCode)
+          )
+        : new Set<string>();
+
+    setVisitStats({
+      visitedDongCount,
+      totalVisitCount,
+      topDongName: topVisitEntry ? dongNameByCodeRef.current.get(topVisitEntry[0]) ?? null : null,
+      topVisitCount,
+    });
+
+    updateBoundaryLayerStyles();
+  }
+
+  async function recalculateRecordCountForDong(mapId: string, dongCode: string, dongName: string) {
+    const { count, error } = await supabase
+      .from("dong_diaries")
+      .select("id", { count: "exact", head: true })
+      .eq("map_id", mapId)
+      .eq("dong_code", dongCode);
+
+    if (error) {
+      throw error;
+    }
+
+    const nextCount = count ?? 0;
+
+    if (nextCount > 0) {
+      const { error: upsertError } = await supabase.from("visited_places").upsert(
+        {
+          user_id: authUser?.id,
+          map_id: mapId,
+          dong_code: dongCode,
+          dong_name: dongName,
+          visit_count: nextCount,
+        },
+        { onConflict: "map_id,dong_code" }
+      );
+
+      if (upsertError) {
+        console.warn("Failed to sync visited_places count:", upsertError);
+      }
+
+      visitCountByDongRef.current.set(dongCode, nextCount);
+      dongNameByCodeRef.current.set(dongCode, dongName);
+    } else {
+      const { error: deleteError } = await supabase
+        .from("visited_places")
+        .delete()
+        .eq("map_id", mapId)
+        .eq("dong_code", dongCode);
+
+      if (deleteError) {
+        console.warn("Failed to delete empty visited_places row:", deleteError);
+      }
+
+      visitCountByDongRef.current.delete(dongCode);
+    }
+
+    if (selectedDong?.dongCode === dongCode) {
+      setSelectedDong((current) => (current ? { ...current, visitCount: nextCount } : current));
+    }
+
+    refreshVisitStatsFromCurrentCounts();
+    return nextCount;
+  }
 
   const syncSelectedMapState = useCallback(async (mapId: string | null) => {
     setSelectedDong(null);
@@ -2043,6 +2172,7 @@ export default function NaverMap() {
 
               const { dongCode, dongName, regionLabel, sigCode } = properties;
               const currentVisitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
+              logRegionStyleDebug(dongCode, dongName);
               selectedDongCodeRef.current = dongCode;
               setSelectedDong({ dongCode, dongName, regionLabel, sigCode, visitCount: currentVisitCount });
               setIsDongPanelOpen(true);
@@ -2070,6 +2200,9 @@ export default function NaverMap() {
               const now = Date.now();
 
               setHoverLabel(properties?.regionLabel ?? null);
+              if (properties) {
+                logRegionStyleDebug(properties.dongCode, properties.dongName);
+              }
               manualHitTestElement.style.cursor = properties ? "pointer" : "";
 
               if (DEBUG_REGION_LABEL && now - lastManualHitLogTime >= 500) {
@@ -2512,6 +2645,148 @@ export default function NaverMap() {
     setDiaryContent("");
     setDiaryEntryDate(getTodayDateValue());
     setPhotoLink("");
+  }
+
+  function openDiaryEdit(diary: DongDiary) {
+    setEditingDiary(diary);
+    setDiaryEditForm({
+      title: diary.title ?? "",
+      content: diary.content,
+      entryDate: diary.entry_date ?? diary.created_at.slice(0, 10),
+    });
+  }
+
+  function closeDiaryEdit() {
+    setEditingDiary(null);
+    setDiaryEditForm({
+      title: "",
+      content: "",
+      entryDate: getTodayDateValue(),
+    });
+  }
+
+  function getStoragePathFromPublicUrl(photoUrl: string | null) {
+    if (!photoUrl) {
+      return null;
+    }
+
+    const marker = "/storage/v1/object/public/dong-diary-photos/";
+    const markerIndex = photoUrl.indexOf(marker);
+
+    if (markerIndex === -1) {
+      return null;
+    }
+
+    return decodeURIComponent(photoUrl.slice(markerIndex + marker.length).split("?")[0]);
+  }
+
+  async function handleDiaryUpdate(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!editingDiary || !currentMap || !canEditCurrentMap) {
+      return;
+    }
+
+    const trimmedContent = diaryEditForm.content.trim();
+
+    if (!trimmedContent) {
+      setStatusMessage("기록 내용을 입력해 주세요.");
+      return;
+    }
+
+    setIsUpdatingDiary(true);
+    setStatusMessage(null);
+
+    try {
+      const { data, error } = await supabase
+        .from("dong_diaries")
+        .update({
+          title: diaryEditForm.title.trim() || null,
+          content: trimmedContent,
+          entry_date: diaryEditForm.entryDate || getTodayDateValue(),
+        })
+        .eq("id", editingDiary.id)
+        .eq("map_id", currentMap.id)
+        .select("id, dong_code, dong_name, title, content, photo_url, entry_date, created_at")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      const updatedDiary = data as DongDiary;
+      setDiaries((current) =>
+        sortDiaries(
+          current.map((diary) => (diary.id === updatedDiary.id ? updatedDiary : diary)),
+          timelineSort
+        )
+      );
+      setAllDiaries((current) =>
+        sortDiaries(
+          current.map((diary) => (diary.id === updatedDiary.id ? updatedDiary : diary)),
+          timelineSort
+        )
+      );
+      closeDiaryEdit();
+      setStatusMessage("기록을 수정했습니다.");
+    } catch (error) {
+      console.error("Failed to update diary:", error);
+      setStatusMessage("기록 수정에 실패했습니다.");
+    } finally {
+      setIsUpdatingDiary(false);
+    }
+  }
+
+  async function handleDiaryDelete() {
+    if (!deletingDiary || !currentMap || !canEditCurrentMap) {
+      return;
+    }
+
+    setIsDeletingDiary(true);
+    setStatusMessage(null);
+
+    try {
+      const storagePath = getStoragePathFromPublicUrl(deletingDiary.photo_url);
+      const { error } = await supabase
+        .from("dong_diaries")
+        .delete()
+        .eq("id", deletingDiary.id)
+        .eq("map_id", currentMap.id);
+
+      if (error) {
+        throw error;
+      }
+
+      if (storagePath) {
+        const { error: storageError } = await supabase.storage
+          .from("dong-diary-photos")
+          .remove([storagePath]);
+
+        if (storageError) {
+          console.warn("Failed to remove diary photo from storage:", storageError);
+        }
+      }
+
+      setDiaries((current) => current.filter((diary) => diary.id !== deletingDiary.id));
+      setAllDiaries((current) => current.filter((diary) => diary.id !== deletingDiary.id));
+      const nextCount = await recalculateRecordCountForDong(
+        currentMap.id,
+        deletingDiary.dong_code,
+        deletingDiary.dong_name
+      );
+
+      if (selectedDong?.dongCode === deletingDiary.dong_code && nextCount === 0) {
+        setDiaries([]);
+      }
+
+      setDeletingDiary(null);
+      setStatusMessage("기록을 삭제했습니다.");
+    } catch (error) {
+      console.error("Failed to delete diary:", error);
+      setStatusMessage("기록 삭제에 실패했습니다.");
+    } finally {
+      setIsDeletingDiary(false);
+    }
   }
 
   async function handleDeleteCurrentMap() {
@@ -3030,6 +3305,24 @@ export default function NaverMap() {
                           <h4 className="text-base font-semibold text-white">
                             {diary.title ?? diary.dong_name}
                           </h4>
+                          {canEditCurrentMap ? (
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => openDiaryEdit(diary)}
+                                className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-slate-100"
+                              >
+                                수정
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingDiary(diary)}
+                                className="rounded-full border border-rose-300/20 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-100"
+                              >
+                                삭제
+                              </button>
+                            </div>
+                          ) : null}
                           <div className="space-y-1 text-xs text-slate-400">
                             <p>기록 날짜: {formatEntryDate(diary.entry_date, diary.created_at)}</p>
                             <p>작성: {formatDateTime(diary.created_at)}</p>
@@ -3086,7 +3379,10 @@ export default function NaverMap() {
 
       {isDongPanelOpen && selectedDong ? (
         <div className="fixed inset-x-0 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-[55] px-3 lg:bottom-5 lg:left-auto lg:right-5 lg:w-[420px] lg:px-0">
-          <section className="max-h-[72dvh] overflow-hidden rounded-[28px] border border-white/15 bg-slate-950 text-white shadow-[0_28px_80px_rgba(15,23,42,0.36)]">
+          <section
+            className="overflow-hidden rounded-[28px] border border-white/15 bg-slate-950 text-white shadow-[0_28px_80px_rgba(15,23,42,0.36)]"
+            style={{ maxHeight: "calc(100dvh - 5rem - env(safe-area-inset-bottom))" }}
+          >
             <div className="border-b border-white/10 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -3132,7 +3428,10 @@ export default function NaverMap() {
                 )}
               </div>
             </div>
-            <div className="max-h-[46dvh] space-y-3 overflow-y-auto p-4">
+            <div
+              className="space-y-3 overflow-y-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] lg:pb-4"
+              style={{ maxHeight: "calc(100dvh - 18rem - env(safe-area-inset-bottom))" }}
+            >
               {renderTimelineSortSelect()}
               {isLoadingDiaries ? (
                 <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-5 text-sm text-slate-300">
@@ -3152,6 +3451,24 @@ export default function NaverMap() {
                     ) : null}
                     <div className="space-y-2 p-4">
                       <h3 className="font-semibold">{diary.title ?? diary.dong_name}</h3>
+                      {canEditCurrentMap ? (
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openDiaryEdit(diary)}
+                            className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-slate-100"
+                          >
+                            수정
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeletingDiary(diary)}
+                            className="rounded-full border border-rose-300/20 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-100"
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      ) : null}
                       <div className="space-y-1 text-xs text-slate-400">
                         <p>기록 날짜: {formatEntryDate(diary.entry_date, diary.created_at)}</p>
                         <p>작성: {formatDateTime(diary.created_at)}</p>
@@ -3163,6 +3480,116 @@ export default function NaverMap() {
                   </article>
                 ))
               )}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {editingDiary ? (
+        <div className="fixed inset-0 z-[80] flex items-end bg-slate-950/50 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:justify-center sm:p-6">
+          <form
+            onSubmit={handleDiaryUpdate}
+            className="w-full max-w-lg rounded-[28px] border border-white/15 bg-slate-950 p-5 text-white shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-300">
+                  기록 수정
+                </p>
+                <h2 className="mt-1 text-xl font-semibold">
+                  {editingDiary.title ?? editingDiary.dong_name}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={closeDiaryEdit}
+                className="rounded-full bg-white/10 px-3 py-1 text-sm font-medium text-white"
+              >
+                닫기
+              </button>
+            </div>
+            <div className="mt-5 space-y-3">
+              <label className="block text-sm font-medium text-slate-200">
+                제목
+                <input
+                  value={diaryEditForm.title}
+                  onChange={(event) =>
+                    setDiaryEditForm((current) => ({ ...current, title: event.target.value }))
+                  }
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-sky-300"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-200">
+                기록 날짜
+                <input
+                  type="date"
+                  value={diaryEditForm.entryDate}
+                  onChange={(event) =>
+                    setDiaryEditForm((current) => ({ ...current, entryDate: event.target.value }))
+                  }
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-sky-300"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-200">
+                내용
+                <textarea
+                  value={diaryEditForm.content}
+                  onChange={(event) =>
+                    setDiaryEditForm((current) => ({ ...current, content: event.target.value }))
+                  }
+                  rows={5}
+                  className="mt-2 w-full resize-none rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-sky-300"
+                />
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeDiaryEdit}
+                className="rounded-2xl border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                disabled={isUpdatingDiary}
+                className="rounded-2xl bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isUpdatingDiary ? "저장 중" : "저장"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {deletingDiary ? (
+        <div className="fixed inset-0 z-[80] flex items-end bg-slate-950/50 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:justify-center sm:p-6">
+          <section className="w-full max-w-md rounded-[28px] border border-white/15 bg-slate-950 p-5 text-white shadow-2xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-rose-300">
+              기록 삭제
+            </p>
+            <h2 className="mt-2 text-xl font-semibold">
+              {deletingDiary.title ?? deletingDiary.dong_name}
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              이 기록을 삭제하시겠습니까? 삭제한 기록은 되돌릴 수 없습니다.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeletingDiary(null)}
+                className="rounded-2xl border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={handleDiaryDelete}
+                disabled={isDeletingDiary}
+                className="rounded-2xl bg-rose-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isDeletingDiary ? "삭제 중" : "삭제"}
+              </button>
             </div>
           </section>
         </div>
