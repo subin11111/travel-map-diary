@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { buildAuthEmail, buildAuthEmailCandidates, validateAuthHandle } from "@/lib/auth";
+import { buildAuthEmail, buildAuthLoginCandidates, validateAuthHandle } from "@/lib/auth";
 import AppMenu from "@/components/AppMenu";
 
 type AuthMode = "login" | "signup";
@@ -12,6 +12,8 @@ type AuthMode = "login" | "signup";
 type AuthFormProps = {
   mode: AuthMode;
 };
+
+const LOGIN_FAILED_MESSAGE = "아이디 또는 비밀번호가 올바르지 않습니다.";
 
 function getSuccessMessage(mode: AuthMode) {
   return mode === "login" ? "로그인되었습니다." : "회원가입이 완료되었습니다.";
@@ -102,29 +104,33 @@ export default function AuthForm({ mode }: AuthFormProps) {
       const email = buildAuthEmail(authHandle);
 
       if (mode === "login") {
-        let lastLoginError: Error | null = null;
+        await supabase.auth.signOut();
 
-        for (const loginEmail of buildAuthEmailCandidates(authHandle)) {
-          const { error } = await supabase.auth.signInWithPassword({
-            email: loginEmail,
+        for (const candidate of buildAuthLoginCandidates(authHandle)) {
+          const { data, error } = await supabase.auth.signInWithPassword({
+            email: candidate.email,
             password: authPassword,
           });
 
-          if (!error) {
+          if (!error && data.user && data.session) {
             setMessage(getSuccessMessage(mode));
             router.replace("/");
             router.refresh();
             return;
           }
 
-          lastLoginError = error;
+          console.warn("login failed", {
+            provider: candidate.provider,
+            message: error?.message ?? "Missing user or session in signInWithPassword response",
+          });
 
-          if (!/invalid login credentials/i.test(error.message)) {
+          if (error && !/invalid login credentials/i.test(error.message)) {
             throw error;
           }
         }
 
-        throw lastLoginError ?? new Error("로그인에 실패했습니다.");
+        await supabase.auth.signOut();
+        throw new Error(LOGIN_FAILED_MESSAGE);
       }
 
       const { data: existingUserId, error: lookupError } = await supabase.rpc("get_user_id_by_handle", {
@@ -159,10 +165,10 @@ export default function AuthForm({ mode }: AuthFormProps) {
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "인증에 실패했습니다.";
 
-      if (/already registered|duplicate|exist/i.test(messageText)) {
+      if (mode === "login") {
+        setMessage(LOGIN_FAILED_MESSAGE);
+      } else if (/already registered|duplicate|exist/i.test(messageText)) {
         setMessage("이미 사용 중인 아이디입니다. 다른 아이디를 사용하세요.");
-      } else if (/invalid login credentials/i.test(messageText)) {
-        setMessage("로그인에 실패했습니다. 아이디 또는 비밀번호를 확인하세요.");
       } else if (/email rate limit exceeded|rate limit exceeded|too many requests/i.test(messageText)) {
         setMessage(
           "요청이 너무 많아 잠시 제한되었습니다. 잠시 후 다시 시도하거나, 이미 가입된 계정이면 로그인으로 진행하세요."

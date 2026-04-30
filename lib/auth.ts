@@ -1,5 +1,6 @@
 export const AUTH_HANDLE_DOMAIN = "users.travel-map-diary.local";
 const LEGACY_AUTH_HANDLE_DOMAINS = ["gmail.com"];
+export type AuthEmailProvider = "internal" | "legacy";
 
 export function normalizeAuthHandle(value: string) {
   return value.trim().toLowerCase();
@@ -32,4 +33,25 @@ export function buildAuthEmailCandidates(handle: string) {
   return [AUTH_HANDLE_DOMAIN, ...LEGACY_AUTH_HANDLE_DOMAINS]
     .filter((domain, index, domains) => domains.indexOf(domain) === index)
     .map((domain) => `${normalizedHandle}@${domain}`);
+}
+
+export function buildAuthLoginCandidates(handle: string) {
+  const normalizedHandle = normalizeAuthHandle(handle);
+  const candidates: { email: string; provider: AuthEmailProvider }[] = [
+    {
+      email: `${normalizedHandle}@${AUTH_HANDLE_DOMAIN}`,
+      provider: "internal",
+    },
+  ];
+
+  LEGACY_AUTH_HANDLE_DOMAINS.forEach((domain) => {
+    if (domain !== AUTH_HANDLE_DOMAIN) {
+      candidates.push({
+        email: `${normalizedHandle}@${domain}`,
+        provider: "legacy",
+      });
+    }
+  });
+
+  return candidates;
 }
