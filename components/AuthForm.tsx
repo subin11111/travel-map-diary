@@ -30,8 +30,8 @@ function getHeading(mode: AuthMode) {
 
 function getDescription(mode: AuthMode) {
   return mode === "login"
-    ? "아이디와 비밀번호로 내 여행 지도를 이어가세요."
-    : "새 아이디를 만들어 개인 여행 기록을 시작하세요.";
+    ? "아이디와 비밀번호로 내 일상 지도를 이어가세요."
+    : "새 아이디를 만들어 개인 일상 기록을 시작하세요.";
 }
 
 function getSubmitLabel(mode: AuthMode) {
@@ -217,7 +217,7 @@ export default function AuthForm({ mode }: AuthFormProps) {
           <section className="flex flex-col justify-between gap-10 bg-slate-950 px-6 py-8 text-white sm:px-8 sm:py-10 lg:px-10 lg:py-12">
             <div className="space-y-6">
               <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-sky-300">
-                Travel Map Diary
+                Life Map Diary
               </p>
               <div className="space-y-3">
                 <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
@@ -236,11 +236,11 @@ export default function AuthForm({ mode }: AuthFormProps) {
               </div>
               <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">2</p>
-                <p className="mt-2 leading-6">로그인하면 나만의 지도와 일기가 저장됩니다.</p>
+                <p className="mt-2 leading-6">로그인하면 나만의 일상 지도와 기록이 저장됩니다.</p>
               </div>
               <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">3</p>
-                <p className="mt-2 leading-6">로그인 후에는 전국 읍면동 방문 기록과 사진을 바로 저장할 수 있습니다.</p>
+                <p className="mt-2 leading-6">로그인 후에는 전국 읍면동 일상 기록과 사진을 바로 저장할 수 있습니다.</p>
               </div>
             </div>
           </section>
@@ -258,9 +258,9 @@ export default function AuthForm({ mode }: AuthFormProps) {
                   {getHeading(mode)}
                 </p>
                 <h2 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
-                  개인 지도 시작
+                  일상 지도 시작
                 </h2>
-                <p className="text-sm leading-6 text-slate-600">내 여행 기록을 안전하게 보관하세요.</p>
+                <p className="text-sm leading-6 text-slate-600">내 일상 기록과 사진을 안전하게 보관하세요.</p>
               </div>
 
               <form className="space-y-3" onSubmit={handleSubmit}>

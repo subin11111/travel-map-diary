@@ -103,7 +103,7 @@ export default function AppMenu({ compact = false }: AppMenuProps) {
           <div className="border-b border-slate-100 px-4 py-4">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">메뉴</p>
             <h2 className="mt-2 text-lg font-semibold tracking-tight text-slate-950">
-              {authUser ? getHandle(authUser) ?? "익명 계정" : "Travel Map Diary"}
+              {authUser ? getHandle(authUser) ?? "익명 계정" : "Life Map Diary"}
             </h2>
             <p className="mt-1 text-sm leading-6 text-slate-600">
               {authUser ? "계정과 기록을 관리하세요." : "로그인하거나 새 계정을 만들어 시작하세요."}

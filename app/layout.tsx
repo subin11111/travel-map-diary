@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Travel Map Diary",
-  description: "전국 읍면동 단위 여행 기록과 사진을 남기는 지도 일기장",
+  title: "Life Map Diary",
+  description: "전국 읍면동 단위 일상 기록과 사진을 남기는 개인 기록 지도",
 };
 
 export default function RootLayout({

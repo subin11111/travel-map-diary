@@ -46,7 +46,7 @@ type TravelMapContextValue = {
 const TravelMapContext = createContext<TravelMapContextValue | null>(null);
 
 const SELECTED_MAP_STORAGE_KEY = "travel-map-diary:selected-map-id";
-const DEFAULT_MAP_TITLE = "나의 여행 지도";
+const DEFAULT_MAP_TITLE = "나의 일상 지도";
 
 function formatUnknownError(error: unknown) {
   if (error instanceof Error) {
@@ -138,7 +138,7 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
         setMapError(
           defaultMapResult.errorMessage === "지도 공유 기능 DB 설정이 아직 완료되지 않았습니다."
             ? MAP_SCHEMA_MISSING_MESSAGE
-            : "아직 생성된 지도가 없습니다. 새 지도를 만들어 주세요."
+            : "아직 생성된 지도가 없습니다. 새 지도를 만들면 일상 기록과 사진을 지역별로 남길 수 있습니다."
         );
         setMaps([]);
         setCurrentMapId(null);

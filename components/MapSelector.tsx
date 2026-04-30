@@ -46,7 +46,7 @@ export default function MapSelector() {
                     : "읽기 권한이 있는 공유 지도입니다."
                 : isLoadingMaps
                   ? "사용할 지도를 확인하고 있습니다."
-                  : "아직 생성된 지도가 없습니다. 새 지도를 만들어 주세요."}
+                  : "아직 생성된 지도가 없습니다. 새 지도를 만들면 일상 기록과 사진을 지역별로 남길 수 있습니다."}
             </p>
           </div>
         </div>
@@ -86,7 +86,7 @@ export default function MapSelector() {
             </select>
           ) : (
             <div className="rounded-2xl border border-white/15 bg-black/25 px-4 py-3 text-sm text-slate-200">
-              새 지도를 만들면 방문 기록과 일기를 저장할 수 있습니다.
+              새 지도를 만들면 일상 기록과 사진을 지역별로 남길 수 있습니다.
             </div>
           )}
 
@@ -111,7 +111,7 @@ export default function MapSelector() {
 
           {!canEditCurrentMap && currentMap ? (
             <p className="text-xs leading-5 text-slate-300">
-              이 지도에서는 기록을 볼 수만 있습니다.
+              이 지도에서는 일상 기록을 볼 수만 있습니다.
             </p>
           ) : null}
         </div>
