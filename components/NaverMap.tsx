@@ -2788,7 +2788,7 @@ export default function NaverMap() {
       ) : null}
 
       {isDongPanelOpen && selectedDong ? (
-        <div className="fixed inset-x-0 bottom-0 z-[55] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:bottom-5 lg:left-auto lg:right-5 lg:w-[420px] lg:p-0">
+        <div className="fixed inset-x-0 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-[55] px-3 lg:bottom-5 lg:left-auto lg:right-5 lg:w-[420px] lg:px-0">
           <section className="max-h-[72dvh] overflow-hidden rounded-[28px] border border-white/15 bg-slate-950 text-white shadow-[0_28px_80px_rgba(15,23,42,0.36)]">
             <div className="border-b border-white/10 p-4">
               <div className="flex items-start justify-between gap-3">
@@ -2871,8 +2871,8 @@ export default function NaverMap() {
         </div>
       ) : null}
 
-      <div className="mx-auto grid min-h-dvh w-full max-w-[1600px] gap-4 px-0 pb-0 pt-[calc(3.5rem+env(safe-area-inset-top))] lg:block">
-        <section className="flex h-[calc(100dvh-3.5rem-env(safe-area-inset-top))] min-h-[70vh] flex-col overflow-hidden bg-white/80 shadow-[0_30px_80px_rgba(15,23,42,0.14)] backdrop-blur lg:h-[calc(100dvh-3.5rem-env(safe-area-inset-top))]">
+      <div className="fixed inset-0 mx-auto grid w-full max-w-[1600px] gap-4 px-0 pb-0 pt-[calc(3.5rem+env(safe-area-inset-top))] lg:block">
+        <section className="flex h-full min-h-0 flex-col overflow-hidden bg-white/80 shadow-[0_30px_80px_rgba(15,23,42,0.14)] backdrop-blur">
           <div className="hidden flex-col gap-3 border-b border-slate-200/80 px-4 py-4 sm:px-5 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-sky-700 sm:text-xs sm:tracking-[0.28em]">
