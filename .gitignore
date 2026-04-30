@@ -4,6 +4,7 @@ out
 .env.local
 .env*.local
 .vercel
+test-results
 
 npm-debug.log*
 yarn-debug.log*

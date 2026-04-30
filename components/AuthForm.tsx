@@ -183,9 +183,9 @@ export default function AuthForm({ mode }: AuthFormProps) {
   const secondaryLink = getSecondaryLink(mode);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(191,219,254,0.45),_rgba(248,250,252,1)_34%,_rgba(226,232,240,0.9)_100%)] px-4 py-8 text-slate-900 sm:px-6 lg:px-8">
+    <main className="min-h-dvh bg-[radial-gradient(circle_at_top,_rgba(191,219,254,0.45),_rgba(248,250,252,1)_34%,_rgba(226,232,240,0.9)_100%)] px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-20 text-slate-900 sm:px-6 sm:py-8 lg:px-8">
       <AppMenu compact />
-      <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl items-center justify-center">
+      <div className="mx-auto flex min-h-[calc(100dvh-5rem)] w-full max-w-6xl items-center justify-center sm:min-h-[calc(100vh-4rem)]">
         <div className="grid w-full gap-6 overflow-hidden rounded-[32px] border border-white/70 bg-white/80 shadow-[0_30px_90px_rgba(15,23,42,0.14)] backdrop-blur lg:grid-cols-[1.05fr_0.95fr]">
           <section className="flex flex-col justify-between gap-10 bg-slate-950 px-6 py-8 text-white sm:px-8 sm:py-10 lg:px-10 lg:py-12">
             <div className="space-y-6">

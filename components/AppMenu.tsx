@@ -62,7 +62,11 @@ export default function AppMenu({ compact = false }: AppMenuProps) {
   }
 
   return (
-    <div className={`fixed left-4 top-4 z-[60] ${compact ? "" : ""}`}>
+    <div
+      className={`fixed left-0 right-0 top-0 z-[60] h-16 border-b border-white/70 bg-white/90 px-4 pt-4 shadow-sm shadow-slate-200/60 backdrop-blur sm:left-4 sm:right-auto sm:top-4 sm:h-auto sm:w-auto sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none ${
+        compact ? "" : ""
+      }`}
+    >
       <button
         type="button"
         onClick={() => setIsOpen((current) => !current)}
@@ -76,7 +80,7 @@ export default function AppMenu({ compact = false }: AppMenuProps) {
       </button>
 
       {isOpen ? (
-        <div className="mt-3 w-72 overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
+        <div className="mt-3 w-[calc(100vw-2rem)] max-w-72 overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
           <div className="border-b border-slate-100 px-4 py-4">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">메뉴</p>
             <h2 className="mt-2 text-lg font-semibold tracking-tight text-slate-950">

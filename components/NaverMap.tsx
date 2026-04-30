@@ -749,7 +749,7 @@ export default function NaverMap() {
   ];
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(237,246,255,0.95),_rgba(247,250,252,1)_34%,_rgba(232,238,252,0.92)_100%)] text-slate-900">
+    <main className="min-h-dvh bg-[radial-gradient(circle_at_top,_rgba(237,246,255,0.95),_rgba(247,250,252,1)_34%,_rgba(232,238,252,0.92)_100%)] text-slate-900">
       <AppMenu />
       {isModalOpen && selectedDong ? (
         <div className="fixed left-0 top-0 z-50 flex h-full w-full items-center justify-center bg-black/50 p-4">
@@ -818,7 +818,7 @@ export default function NaverMap() {
           </div>
         </div>
       ) : null}
-      <div className="mx-auto grid min-h-screen w-full max-w-[1600px] gap-4 p-3 sm:p-4 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-stretch">
+      <div className="mx-auto grid min-h-dvh w-full max-w-[1600px] gap-4 px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-20 sm:p-4 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-stretch">
         <section className="flex min-h-[56vh] flex-col overflow-hidden rounded-[24px] border border-white/70 bg-white/80 shadow-[0_30px_80px_rgba(15,23,42,0.14)] backdrop-blur sm:min-h-[60vh] lg:h-[calc(100vh-2rem)] lg:min-h-0 lg:rounded-[28px]">
           <div className="flex flex-col gap-3 border-b border-slate-200/80 px-4 py-4 sm:px-5 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
@@ -829,8 +829,8 @@ export default function NaverMap() {
                 {currentMap ? currentMap.title : "서울 동 단위 여행 일기"}
               </h1>
             </div>
-            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-              <div className="inline-flex w-fit items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-medium text-sky-700 shadow-sm sm:px-3 sm:text-sm">
+            <div className="flex min-w-0 flex-col gap-2 xl:flex-row xl:flex-wrap xl:items-center xl:justify-end">
+              <div className="inline-flex w-full items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-medium text-sky-700 shadow-sm sm:w-fit sm:px-3 sm:text-sm">
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-sky-600 text-white shadow-sm sm:h-6 sm:w-6">
                   <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3.5 w-3.5 fill-current">
                     <path d="M12 2C8.14 2 5 5.14 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.86-3.14-7-7-7Zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5Z" />
@@ -839,11 +839,14 @@ export default function NaverMap() {
                 <span>방문 횟수 + 일기 + 사진</span>
               </div>
 
-              <div className="flex w-full gap-2 overflow-x-auto pb-1 sm:w-auto sm:flex-wrap sm:overflow-visible">
+              <div
+                data-testid="visit-stats"
+                className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap"
+              >
                 {visitBadgeItems.map((item) => (
                   <div
                     key={item.label}
-                    className={`flex min-w-[165px] flex-none items-center gap-2.5 rounded-2xl border px-3 py-2 shadow-sm sm:min-w-[185px] ${item.toneClassName}`}
+                    className={`flex min-w-0 items-center gap-2.5 rounded-2xl border px-3 py-2 shadow-sm xl:min-w-[185px] ${item.toneClassName}`}
                   >
                     <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white/80 shadow-sm sm:h-9 sm:w-9">
                       {item.icon}
@@ -861,8 +864,8 @@ export default function NaverMap() {
               </div>
             </div>
           </div>
-          <div className="relative min-h-[50vh] flex-1 overflow-hidden sm:min-h-[54vh] lg:min-h-0">
-            <div ref={mapRef} className="h-full w-full min-h-[50vh] sm:min-h-[54vh] lg:min-h-0" />
+          <div className="relative h-[60vh] min-h-[420px] max-h-[640px] overflow-hidden sm:min-h-[54vh] lg:h-auto lg:min-h-0 lg:max-h-none lg:flex-1">
+            <div ref={mapRef} className="h-full w-full" />
             <div className="pointer-events-none absolute left-3 top-3 z-20 flex max-w-[calc(100%-1.5rem)] flex-col gap-2 sm:left-4 sm:top-4 sm:max-w-[360px]">
               <div className="hidden rounded-2xl border border-white/70 bg-white/90 px-4 py-3 text-sm font-medium text-slate-800 shadow-lg backdrop-blur sm:block">
                 {hoveredDongName ? `현재 보기: ${hoveredDongName}` : "동 위에 마우스를 올리면 이름이 표시됩니다."}
@@ -904,7 +907,10 @@ export default function NaverMap() {
           </div>
         </section>
 
-        <aside className="flex min-h-0 flex-col gap-4 rounded-[28px] border border-slate-200/80 bg-slate-950 px-4 py-4 text-slate-100 shadow-[0_30px_80px_rgba(15,23,42,0.2)] lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)]">
+        <aside
+          data-testid="mobile-side-panel"
+          className="flex min-h-0 flex-col gap-4 rounded-[28px] border border-slate-200/80 bg-slate-950 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 text-slate-100 shadow-[0_30px_80px_rgba(15,23,42,0.2)] sm:pb-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)]"
+        >
           <div className="rounded-[24px] border border-white/10 bg-white/5 p-4 sm:p-5">
             {!authUser ? (
               <div className="space-y-3">
