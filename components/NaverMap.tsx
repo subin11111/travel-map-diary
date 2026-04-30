@@ -105,44 +105,46 @@ type NaverWindow = Window & {
   naver?: NaverMapApi;
 };
 
-function getVisitStyle(count: number, isTopDong = false): VisitStyle {
-  if (isTopDong && count > 0) {
+function getDongColorByVisitCount(visitCount: number) {
+  if (visitCount <= 0) {
     return {
-      fillColor: "#10b981",
-      fillOpacity: 0.58,
-      strokeColor: "#047857",
-      strokeOpacity: 0.9,
-      strokeWeight: 2,
+      fillColor: "#F3F7FA",
+      strokeColor: "#B6C3D1",
+      fillOpacity: 0.12,
     };
   }
 
-  if (count <= 0) {
-    return {
-      fillColor: "#e7e5e4",
-      fillOpacity: 0.18,
-      strokeColor: "#a8a29e",
-      strokeOpacity: 0.28,
-      strokeWeight: 1,
-    };
+  if (visitCount >= 7) {
+    return { fillColor: "#0F2854", strokeColor: "#0F2854", fillOpacity: 0.65 };
   }
 
-  const color = count >= 7 ? "#581c87" : count >= 4 ? "#4338ca" : count >= 2 ? "#2563eb" : "#7dd3fc";
+  if (visitCount >= 4) {
+    return { fillColor: "#1C4D8D", strokeColor: "#0F2854", fillOpacity: 0.55 };
+  }
+
+  if (visitCount >= 2) {
+    return { fillColor: "#4988C4", strokeColor: "#1C4D8D", fillOpacity: 0.45 };
+  }
+
+  return { fillColor: "#BDE8F5", strokeColor: "#4988C4", fillOpacity: 0.35 };
+}
+
+function getVisitStyle(count: number): VisitStyle {
+  const color = getDongColorByVisitCount(count);
 
   return {
-    fillColor: color,
-    fillOpacity: count >= 7 ? 0.68 : count >= 4 ? 0.58 : count >= 2 ? 0.46 : 0.36,
-    strokeColor: color,
-    strokeOpacity: count >= 7 ? 0.86 : 0.7,
+    ...color,
+    strokeOpacity: count > 0 ? 0.76 : 0.35,
     strokeWeight: 1,
   };
 }
 
 function getSelectedDongStyle(): VisitStyle {
   return {
-    fillColor: "#f97316",
-    fillOpacity: 0.58,
-    strokeColor: "#c2410c",
-    strokeOpacity: 0.98,
+    fillColor: "#BDE8F5",
+    fillOpacity: 0.65,
+    strokeColor: "#0F2854",
+    strokeOpacity: 1,
     strokeWeight: 3,
   };
 }
@@ -202,7 +204,6 @@ export default function NaverMap() {
   const polygonGroupsRef = useRef(new Map<string, NaverPolygonInstance[]>());
   const visitCountByDongRef = useRef(new Map<string, number>());
   const dongNameByCodeRef = useRef(new Map<string, string>());
-  const topDongCodesRef = useRef(new Set<string>());
   const selectedDongCodeRef = useRef<string | null>(null);
   const authUserRef = useRef<User | null>(null);
   const currentMapRef = useRef<TravelMap | null>(null);
@@ -298,11 +299,10 @@ export default function NaverMap() {
   const restyleDong = useCallback((dongCode: string) => {
     const count = visitCountByDongRef.current.get(dongCode) ?? 0;
     const isSelected = selectedDongCodeRef.current === dongCode;
-    const isTopDong = topDongCodesRef.current.has(dongCode);
 
     applyPolygonStyle(
       dongCode,
-      isSelected ? getSelectedDongStyle() : getVisitStyle(count, isTopDong),
+      isSelected ? getSelectedDongStyle() : getVisitStyle(count),
       isSelected ? 300 : count > 0 ? 100 : 10
     );
   }, [applyPolygonStyle]);
@@ -318,7 +318,6 @@ export default function NaverMap() {
   const resetUserScopedMapState = useCallback(() => {
     visitCountByDongRef.current.clear();
     dongNameByCodeRef.current.clear();
-    topDongCodesRef.current.clear();
     selectedDongCodeRef.current = null;
 
     polygonGroupsRef.current.forEach((_, dongCode) => {
@@ -413,14 +412,6 @@ export default function NaverMap() {
 
     visitCountByDongRef.current = visitCountMap;
     dongNameByCodeRef.current = dongNameMap;
-    topDongCodesRef.current = new Set(
-      [...visitCountMap.entries()]
-        .filter(([, count]) => count > 0)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([dongCode]) => dongCode)
-    );
-
     const visitEntries = [...visitCountMap.entries()];
     const visitedDongCount = visitEntries.filter(([, count]) => count > 0).length;
     const totalVisitCount = visitEntries.reduce((sum, [, count]) => sum + count, 0);
@@ -625,7 +616,7 @@ export default function NaverMap() {
           paths,
           clickable: true,
           zIndex: initialVisitCount > 0 ? 100 : 10,
-          ...getVisitStyle(initialVisitCount, topDongCodesRef.current.has(dongCode)),
+          ...getVisitStyle(initialVisitCount),
         });
 
         const existingGroup = polygonGroupsRef.current.get(dongCode) ?? [];
@@ -796,13 +787,6 @@ export default function NaverMap() {
         } else {
           visitCountByDongRef.current.set(selectedDong!.dongCode, nextVisitCount);
           dongNameByCodeRef.current.set(selectedDong!.dongCode, selectedDong!.dongName);
-          topDongCodesRef.current = new Set(
-            [...visitCountByDongRef.current.entries()]
-              .filter(([, count]) => count > 0)
-              .sort((a, b) => b[1] - a[1])
-              .slice(0, 5)
-              .map(([dongCode]) => dongCode)
-          );
           setSelectedDong({
             dongCode: selectedDong!.dongCode,
             dongName: selectedDong!.dongName,
@@ -1372,13 +1356,12 @@ export default function NaverMap() {
               {activeDrawerTab === "status" ? (
                 <div className="space-y-3">
                   {[
-                    ["방문 전", "#e7e5e4", "아직 기록이 없는 동입니다."],
-                    ["1회", "#7dd3fc", "한 번 방문한 동입니다."],
-                    ["2~3회", "#2563eb", "여러 번 방문한 동입니다."],
-                    ["4~6회", "#4338ca", "방문 횟수가 높은 동입니다."],
-                    ["7회 이상", "#581c87", "방문 횟수가 매우 높은 동입니다."],
-                    ["Top 5", "#10b981", "방문 횟수 기준 상위 5개 동입니다."],
-                    ["선택된 동", "#f97316", selectedDong ? selectedDong.dongName : "아직 선택된 동이 없습니다."],
+                    ["방문 전", "#F3F7FA", "아직 기록이 없는 동입니다."],
+                    ["1회 방문", "#BDE8F5", "한 번 방문한 동입니다."],
+                    ["2~3회 방문", "#4988C4", "여러 번 방문한 동입니다."],
+                    ["4~6회 방문", "#1C4D8D", "방문 횟수가 높은 동입니다."],
+                    ["7회 이상 방문", "#0F2854", "방문 횟수가 매우 높은 동입니다."],
+                    ["선택된 동", "#BDE8F5", selectedDong ? selectedDong.dongName : "아직 선택된 동이 없습니다."],
                   ].map(([label, color, detail]) => (
                     <div key={label} className="flex items-center gap-3 rounded-[24px] border border-white/10 bg-white/5 p-4">
                       <span className="h-4 w-4 rounded-full border border-white/50" style={{ backgroundColor: color }} />
@@ -1639,20 +1622,28 @@ export default function NaverMap() {
                 </div>
                 <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-1">
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-slate-300 bg-[#e7e5e4]" />
+                    <span className="h-2 w-2 rounded-full border border-[#B6C3D1] bg-[#F3F7FA]" />
                     방문 전
                   </div>
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-[#7dd3fc] bg-[#7dd3fc]" />
-                    1회 이상 방문
+                    <span className="h-2 w-2 rounded-full border border-[#4988C4] bg-[#BDE8F5]" />
+                    1회
                   </div>
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-[#10b981] bg-[#10b981]" />
-                    통계 상위 동
+                    <span className="h-2 w-2 rounded-full border border-[#1C4D8D] bg-[#4988C4]" />
+                    2~3회
                   </div>
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-[#f97316] bg-[#f97316]" />
-                    선택한 동
+                    <span className="h-2 w-2 rounded-full border border-[#0F2854] bg-[#1C4D8D]" />
+                    4~6회
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
+                    <span className="h-2 w-2 rounded-full border border-[#0F2854] bg-[#0F2854]" />
+                    7회+
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
+                    <span className="h-2 w-2 rounded-full border-2 border-[#0F2854] bg-[#BDE8F5]" />
+                    선택됨
                   </div>
                 </div>
               </div>
