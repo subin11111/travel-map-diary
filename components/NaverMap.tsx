@@ -96,7 +96,10 @@ type NaverMapApi = {
       options: {
         center: unknown;
         zoom: number;
+        scrollWheel?: boolean;
+        draggable?: boolean;
         disableDoubleClickZoom: boolean;
+        pinchZoom?: boolean;
       }
     ) => NaverMapInstance;
     LatLng: new (lat: number, lng: number) => unknown;
@@ -990,18 +993,10 @@ export default function NaverMap() {
         return;
       }
 
-      const stopBrowserViewportGesture = (event: WheelEvent) => {
-        event.preventDefault();
-        event.stopPropagation();
-      };
       const stopBrowserZoomGesture = (event: WheelEvent) => {
         if (event.ctrlKey || event.metaKey) {
           event.preventDefault();
         }
-      };
-      const stopBrowserTouchGesture = (event: TouchEvent) => {
-        event.preventDefault();
-        event.stopPropagation();
       };
       const stopSafariGesture = (event: Event) => {
         event.preventDefault();
@@ -1009,15 +1004,11 @@ export default function NaverMap() {
       };
 
       element.addEventListener("wheel", stopBrowserZoomGesture, { capture: true, passive: false });
-      element.addEventListener("wheel", stopBrowserViewportGesture, { passive: false });
-      element.addEventListener("touchmove", stopBrowserTouchGesture, { passive: false });
       element.addEventListener("gesturestart", stopSafariGesture, { passive: false });
       element.addEventListener("gesturechange", stopSafariGesture, { passive: false });
 
       removeMapGestureGuards = () => {
         element.removeEventListener("wheel", stopBrowserZoomGesture, { capture: true });
-        element.removeEventListener("wheel", stopBrowserViewportGesture);
-        element.removeEventListener("touchmove", stopBrowserTouchGesture);
         element.removeEventListener("gesturestart", stopSafariGesture);
         element.removeEventListener("gesturechange", stopSafariGesture);
       };
@@ -1120,7 +1111,10 @@ export default function NaverMap() {
         const naverMap = new naverApi.maps.Map(naverMapElementRef.current, {
           center: new naverApi.maps.LatLng(KOREA_CENTER[1], KOREA_CENTER[0]),
           zoom: NAVER_INITIAL_ZOOM,
-          disableDoubleClickZoom: true,
+          scrollWheel: true,
+          draggable: true,
+          disableDoubleClickZoom: false,
+          pinchZoom: true,
         });
         naverMapRef.current = naverMap;
 

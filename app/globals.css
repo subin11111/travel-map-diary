@@ -47,5 +47,5 @@ img {
 
 .map-interaction-surface {
   overscroll-behavior: contain;
-  touch-action: none;
+  touch-action: manipulation;
 }
