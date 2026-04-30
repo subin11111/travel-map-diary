@@ -59,6 +59,39 @@
 - Supabase Storage: 동별 일기에 첨부한 사진 저장
 - Row Level Security: 사용자별 방문 기록, 일기, 사진 데이터 분리
 
+## Supabase 마이그레이션
+
+다중 지도와 공유 지도 기능은 아래 테이블을 필요로 합니다.
+
+- `public.maps`
+- `public.map_members`
+- `public.user_profiles`
+- 기존 기록 테이블의 `map_id`
+  - 현재 프로젝트: `public.visited_places`, `public.dong_diaries`
+
+Supabase SQL Editor에서 다음 마이그레이션을 먼저 실행하세요.
+
+```text
+supabase/migrations/20260430_add_multi_maps_and_sharing.sql
+```
+
+SQL 적용 후에도 `Could not find the table 'public.map_members' in the schema cache` 오류가 계속 보이면 다음을 확인하세요.
+
+- Supabase Dashboard 새로고침
+- API schema cache reload
+- 로컬 dev server 재시작
+- `.next` 캐시 삭제 후 재실행
+
+확인 순서:
+
+1. Supabase SQL Editor에서 migration SQL 실행
+2. `maps`, `map_members` 테이블 생성 확인
+3. 앱 dev server 재시작
+4. 신규 로그인 계정으로 접속해 기본 지도 자동 생성 확인
+5. 기존 계정으로 접속해 지도 목록 확인
+6. 공유 받은 지도 목록 조회 확인
+7. `npm.cmd run lint` 실행
+
 ## 환경 변수
 
 프로젝트 루트에 `.env.local` 파일을 만들고 아래 값을 설정합니다.
@@ -92,6 +125,8 @@ http://localhost:3000
 ## 현재 검증 상태
 
 - `npm.cmd run lint` 통과
+- `npx.cmd tsc --noEmit` 통과
+- `npm.cmd run build` 통과
 - 현재 새 파일과 변경 파일은 아직 커밋되지 않은 상태입니다.
 
 ## 최근 개선 사항

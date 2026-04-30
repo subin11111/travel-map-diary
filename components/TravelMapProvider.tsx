@@ -11,9 +11,11 @@ import {
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import {
+  MAP_SCHEMA_MISSING_MESSAGE,
   canEditMap,
   createTravelMap,
   fetchTravelMaps,
+  isMissingMapSharingSchemaError,
   type TravelMap,
 } from "@/lib/travelMaps";
 
@@ -84,8 +86,13 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
     try {
       nextMaps = await fetchTravelMaps();
     } catch (error) {
-      console.error("Failed to load maps:", formatUnknownError(error));
-      setMapError("지도 목록을 불러오지 못했습니다.");
+      if (isMissingMapSharingSchemaError(error)) {
+        setMapError(MAP_SCHEMA_MISSING_MESSAGE);
+      } else {
+        console.error("Failed to load maps:", formatUnknownError(error));
+        setMapError("지도 목록을 불러오지 못했습니다.");
+      }
+
       setMaps([]);
       setCurrentMapId(null);
       setIsLoadingMaps(false);
@@ -96,8 +103,13 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
       try {
         const defaultMap = await createTravelMap(user.id, DEFAULT_MAP_TITLE);
         nextMaps = [defaultMap];
-      } catch {
-        setMapError("아직 생성된 지도가 없습니다. 새 지도를 만들어 주세요.");
+      } catch (error) {
+        if (isMissingMapSharingSchemaError(error)) {
+          setMapError(MAP_SCHEMA_MISSING_MESSAGE);
+        } else {
+          setMapError("아직 생성된 지도가 없습니다. 새 지도를 만들어 주세요.");
+        }
+
         setMaps([]);
         setCurrentMapId(null);
         setIsLoadingMaps(false);
@@ -173,7 +185,18 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
         throw new Error("로그인이 필요합니다.");
       }
 
-      const nextMap = await createTravelMap(authUser.id, title, description);
+      let nextMap: TravelMap;
+
+      try {
+        nextMap = await createTravelMap(authUser.id, title, description);
+      } catch (error) {
+        if (isMissingMapSharingSchemaError(error)) {
+          setMapError(MAP_SCHEMA_MISSING_MESSAGE);
+        }
+
+        throw error;
+      }
+
       setMaps((current) => [...current, nextMap]);
       setMapError(null);
       selectMap(nextMap.id);

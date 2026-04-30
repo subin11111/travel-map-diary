@@ -1,11 +1,3 @@
-do $$
-begin
-  if not exists (select 1 from pg_type where typname = 'map_member_role') then
-    create type public.map_member_role as enum ('owner', 'editor', 'viewer');
-  end if;
-end;
-$$;
-
 create table if not exists public.user_profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   handle text not null unique,
@@ -18,17 +10,52 @@ create table if not exists public.maps (
   owner_id uuid not null references auth.users(id) on delete cascade,
   title text not null,
   description text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create table if not exists public.map_members (
   id uuid primary key default gen_random_uuid(),
   map_id uuid not null references public.maps(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
-  role public.map_member_role not null default 'viewer',
+  role text not null default 'viewer' check (role in ('owner', 'editor', 'viewer')),
   created_at timestamptz not null default now(),
   unique (map_id, user_id)
 );
+
+alter table if exists public.maps
+  add column if not exists updated_at timestamptz not null default now();
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'map_members'
+      and column_name = 'role'
+      and udt_name = 'map_member_role'
+  ) then
+    alter table public.map_members
+      alter column role type text using role::text;
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'map_members_role_check'
+  ) then
+    alter table public.map_members
+      add constraint map_members_role_check check (role in ('owner', 'editor', 'viewer')) not valid;
+  end if;
+end;
+$$;
+
+alter table public.map_members validate constraint map_members_role_check;
 
 do $$
 begin
@@ -48,6 +75,20 @@ alter table if exists public.visited_places
   add column if not exists map_id uuid references public.maps(id) on delete cascade;
 
 alter table if exists public.dong_diaries
+  add column if not exists map_id uuid references public.maps(id) on delete cascade;
+
+-- Compatibility for earlier or future table names. The current app uses
+-- visited_places and dong_diaries; there is no separate image table today.
+alter table if exists public.visit_records
+  add column if not exists map_id uuid references public.maps(id) on delete cascade;
+
+alter table if exists public.diary_entries
+  add column if not exists map_id uuid references public.maps(id) on delete cascade;
+
+alter table if exists public.images
+  add column if not exists map_id uuid references public.maps(id) on delete cascade;
+
+alter table if exists public.diary_images
   add column if not exists map_id uuid references public.maps(id) on delete cascade;
 
 create index if not exists maps_owner_id_idx
@@ -76,17 +117,56 @@ as $$
   select split_part(lower(email), '@', 1)
 $$;
 
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists set_maps_updated_at on public.maps;
+create trigger set_maps_updated_at
+  before update on public.maps
+  for each row execute function public.set_updated_at();
+
 create or replace function public.create_profile_for_auth_user()
 returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  base_handle text;
+  next_handle text;
 begin
+  base_handle := public.handle_from_auth_email(new.email);
+  next_handle := base_handle;
+
+  if exists (
+    select 1
+    from public.user_profiles
+    where handle = next_handle
+      and user_id <> new.id
+  ) then
+    next_handle := base_handle || '-' || left(new.id::text, 8);
+  end if;
+
   insert into public.user_profiles (user_id, handle, auth_email)
-  values (new.id, public.handle_from_auth_email(new.email), lower(new.email))
+  values (new.id, next_handle, lower(new.email))
   on conflict (user_id) do update
-  set handle = excluded.handle,
+  set handle = case
+        when not exists (
+          select 1
+          from public.user_profiles existing
+          where existing.handle = excluded.handle
+            and existing.user_id <> excluded.user_id
+        )
+        then excluded.handle
+        else public.handle_from_auth_email(excluded.auth_email) || '-' || left(excluded.user_id::text, 8)
+      end,
       auth_email = excluded.auth_email;
 
   return new;
@@ -98,12 +178,38 @@ create trigger on_auth_user_created_create_profile
   after insert or update of email on auth.users
   for each row execute function public.create_profile_for_auth_user();
 
+with auth_profile_rows as (
+  select
+    id as user_id,
+    lower(email) as auth_email,
+    public.handle_from_auth_email(email) as base_handle,
+    row_number() over (
+      partition by public.handle_from_auth_email(email)
+      order by created_at nulls last, id
+    ) as duplicate_index
+  from auth.users
+  where email is not null
+)
 insert into public.user_profiles (user_id, handle, auth_email)
-select id, public.handle_from_auth_email(email), lower(email)
-from auth.users
-where email is not null
+select
+  user_id,
+  case
+    when duplicate_index = 1 then base_handle
+    else base_handle || '-' || left(user_id::text, 8)
+  end as handle,
+  auth_email
+from auth_profile_rows
 on conflict (user_id) do update
-set handle = excluded.handle,
+set handle = case
+      when not exists (
+        select 1
+        from public.user_profiles existing
+        where existing.handle = excluded.handle
+          and existing.user_id <> excluded.user_id
+      )
+      then excluded.handle
+      else public.handle_from_auth_email(excluded.auth_email) || '-' || left(excluded.user_id::text, 8)
+    end,
     auth_email = excluded.auth_email;
 
 create or replace function public.is_map_member(target_map_id uuid, target_user_id uuid)
@@ -228,6 +334,11 @@ alter table public.map_members enable row level security;
 alter table public.visited_places enable row level security;
 alter table public.dong_diaries enable row level security;
 
+alter table if exists public.visit_records enable row level security;
+alter table if exists public.diary_entries enable row level security;
+alter table if exists public.images enable row level security;
+alter table if exists public.diary_images enable row level security;
+
 drop policy if exists "Authenticated users can read profiles" on public.user_profiles;
 create policy "Authenticated users can read profiles"
   on public.user_profiles
@@ -295,6 +406,10 @@ drop policy if exists "User read visited places" on public.visited_places;
 drop policy if exists "User insert visited places" on public.visited_places;
 drop policy if exists "User update visited places" on public.visited_places;
 drop policy if exists "User delete visited places" on public.visited_places;
+drop policy if exists "Map members read visited places" on public.visited_places;
+drop policy if exists "Map editors insert visited places" on public.visited_places;
+drop policy if exists "Map editors update visited places" on public.visited_places;
+drop policy if exists "Map editors delete visited places" on public.visited_places;
 
 create policy "Map members read visited places"
   on public.visited_places
@@ -321,6 +436,10 @@ drop policy if exists "User read dong diaries" on public.dong_diaries;
 drop policy if exists "User insert dong diaries" on public.dong_diaries;
 drop policy if exists "User update dong diaries" on public.dong_diaries;
 drop policy if exists "User delete dong diaries" on public.dong_diaries;
+drop policy if exists "Map members read dong diaries" on public.dong_diaries;
+drop policy if exists "Map editors insert dong diaries" on public.dong_diaries;
+drop policy if exists "Map editors update dong diaries" on public.dong_diaries;
+drop policy if exists "Map editors delete dong diaries" on public.dong_diaries;
 
 create policy "Map members read dong diaries"
   on public.dong_diaries
@@ -342,3 +461,46 @@ create policy "Map editors delete dong diaries"
   on public.dong_diaries
   for delete
   using (public.can_edit_map(map_id, auth.uid()));
+
+do $$
+declare
+  target_table text;
+begin
+  foreach target_table in array array['visit_records', 'diary_entries', 'images', 'diary_images']
+  loop
+    if exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = target_table
+        and column_name = 'map_id'
+    ) then
+      execute format('drop policy if exists "Map members read %I" on public.%I', target_table, target_table);
+      execute format('drop policy if exists "Map editors insert %I" on public.%I', target_table, target_table);
+      execute format('drop policy if exists "Map editors update %I" on public.%I', target_table, target_table);
+      execute format('drop policy if exists "Map editors delete %I" on public.%I', target_table, target_table);
+
+      execute format(
+        'create policy "Map members read %I" on public.%I for select using (public.is_map_member(map_id, auth.uid()))',
+        target_table,
+        target_table
+      );
+      execute format(
+        'create policy "Map editors insert %I" on public.%I for insert with check (public.can_edit_map(map_id, auth.uid()))',
+        target_table,
+        target_table
+      );
+      execute format(
+        'create policy "Map editors update %I" on public.%I for update using (public.can_edit_map(map_id, auth.uid())) with check (public.can_edit_map(map_id, auth.uid()))',
+        target_table,
+        target_table
+      );
+      execute format(
+        'create policy "Map editors delete %I" on public.%I for delete using (public.can_edit_map(map_id, auth.uid()))',
+        target_table,
+        target_table
+      );
+    end if;
+  end loop;
+end;
+$$;

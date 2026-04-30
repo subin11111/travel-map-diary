@@ -61,8 +61,26 @@ type SharedMemberRow = {
   user_profiles: { handle: string } | { handle: string }[] | null;
 };
 
+export const MAP_SCHEMA_MISSING_MESSAGE =
+  "지도 공유 기능을 위한 DB 테이블이 아직 생성되지 않았습니다. Supabase SQL 마이그레이션을 적용해 주세요.";
+
 function firstRelation<T>(value: T | T[] | null) {
   return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+export function isMissingMapSharingSchemaError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const maybeError = error as { code?: unknown; message?: unknown };
+  const code = typeof maybeError.code === "string" ? maybeError.code : "";
+  const message = typeof maybeError.message === "string" ? maybeError.message : "";
+
+  return (
+    code === "PGRST205" ||
+    (/schema cache/i.test(message) && /map_members|maps/i.test(message))
+  );
 }
 
 export function canEditMap(role: MapRole | null | undefined) {
