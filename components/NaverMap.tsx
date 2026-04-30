@@ -49,6 +49,23 @@ type VisitCountBuckets = {
   sevenPlus: string[];
 };
 
+type OverlayDebugInfo = {
+  fileStatus: string;
+  headerLoaded: boolean;
+  sourceId: string;
+  sourceLayer: string;
+  fillLayerExists: boolean;
+  lineLayerExists: boolean;
+  renderedFeatures: number;
+  sourceFeatures: number;
+  overlayZIndex: string;
+  canvasZIndex: string;
+  overlayOpacity: string;
+  canvasOpacity: string;
+  mapLibreZoom: number | null;
+  debugMode: string;
+};
+
 type DrawerTab = "map" | "settings" | "stats" | "status" | "records" | "account";
 type TimelineSort = "entry-desc" | "entry-asc" | "created-desc";
 
@@ -122,6 +139,7 @@ type NaverMapApi = {
 type NaverWindow = Window & {
   naver?: NaverMapApi;
   __setOverlayZoomOffset?: (offset: number) => void;
+  __bringPmtilesOverlayToFront?: () => void;
   __pmtilesProtocolRegistered?: boolean;
 };
 
@@ -148,6 +166,8 @@ const DEBUG_MAP_MODE = (process.env.NEXT_PUBLIC_DEBUG_MAP_MODE ?? "both") as
 const DEBUG_BOUNDARY_STYLE = process.env.NEXT_PUBLIC_DEBUG_BOUNDARY_STYLE === "true";
 const DEBUG_FIXED_OVERLAY_VIEW = process.env.NEXT_PUBLIC_DEBUG_FIXED_OVERLAY_VIEW === "true";
 const DEBUG_OVERLAY_BACKGROUND = process.env.NEXT_PUBLIC_DEBUG_OVERLAY_BACKGROUND === "true";
+const DEBUG_OVERLAY_STACK = process.env.NEXT_PUBLIC_DEBUG_OVERLAY_STACK === "true";
+const DEBUG_MAP_OVERLAY = process.env.NEXT_PUBLIC_DEBUG_MAP_OVERLAY === "true";
 const DEBUG_MAP_SYNC = process.env.NEXT_PUBLIC_DEBUG_MAP_SYNC === "true";
 const DEBUG_REGION_LABEL = process.env.NEXT_PUBLIC_DEBUG_REGION_LABEL === "true";
 const OVERLAY_MOVING_OPACITY = "0.22";
@@ -590,7 +610,7 @@ function buildVisitStrokeWidthExpression(
 function getDebugBoundaryFillPaint() {
   return {
     "fill-color": "#ff0000",
-    "fill-opacity": 0.75,
+    "fill-opacity": 0.45,
   };
 }
 
@@ -598,7 +618,7 @@ function getDebugBoundaryLinePaint() {
   return {
     "line-color": "#000000",
     "line-opacity": 1,
-    "line-width": 4,
+    "line-width": 2.5,
   };
 }
 
@@ -793,6 +813,7 @@ export default function NaverMap() {
   const [isLoadingAllDiaries, setIsLoadingAllDiaries] = useState(false);
   const [isSavingDiary, setIsSavingDiary] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [overlayDebugInfo, setOverlayDebugInfo] = useState<OverlayDebugInfo | null>(null);
   const [diaryTitle, setDiaryTitle] = useState("");
   const [diaryContent, setDiaryContent] = useState("");
   const [diaryEntryDate, setDiaryEntryDate] = useState(() => getTodayDateValue());
@@ -1160,9 +1181,10 @@ export default function NaverMap() {
     let removeMapGestureGuards: (() => void) | null = null;
 
     function syncMapElementSizes() {
-      const rootRect = mapRef.current?.getBoundingClientRect();
+      const wrapper = mapRef.current;
+      const rootRect = wrapper?.getBoundingClientRect();
 
-      if (!rootRect || !naverMapElementRef.current || !overlayMapElementRef.current) {
+      if (!wrapper || !rootRect || !naverMapElementRef.current || !overlayMapElementRef.current) {
         return null;
       }
 
@@ -1174,18 +1196,25 @@ export default function NaverMap() {
 
       overlayMapElementRef.current.style.position = "absolute";
       overlayMapElementRef.current.style.inset = "0";
-      overlayMapElementRef.current.style.zIndex = "20";
-      overlayMapElementRef.current.style.background = DEBUG_OVERLAY_BACKGROUND
+      overlayMapElementRef.current.style.zIndex = DEBUG_OVERLAY_STACK ? "9999" : "30";
+      overlayMapElementRef.current.style.background = DEBUG_OVERLAY_BACKGROUND || DEBUG_OVERLAY_STACK
         ? "rgba(255, 0, 0, 0.08)"
         : "transparent";
+      overlayMapElementRef.current.style.outline = DEBUG_OVERLAY_STACK ? "3px solid red" : "";
       overlayMapElementRef.current.style.pointerEvents = "none";
       overlayMapElementRef.current.style.opacity = isMapMovingRef.current
         ? OVERLAY_MOVING_OPACITY
         : OVERLAY_IDLE_OPACITY;
+      overlayMapElementRef.current.style.transform = "translateZ(0)";
       overlayMapElementRef.current.style.transition = "opacity 120ms ease-out";
       overlayMapElementRef.current.style.visibility = "visible";
+      overlayMapElementRef.current.style.willChange = "transform";
       overlayMapElementRef.current.style.width = `${rootRect.width}px`;
       overlayMapElementRef.current.style.height = `${rootRect.height}px`;
+
+      if (wrapper.lastElementChild !== overlayMapElementRef.current) {
+        wrapper.appendChild(overlayMapElementRef.current);
+      }
 
       const naverRect = naverMapElementRef.current.getBoundingClientRect();
       const overlayRect = overlayMapElementRef.current.getBoundingClientRect();
@@ -1206,14 +1235,38 @@ export default function NaverMap() {
     }
 
     function forceMapLibreDomVisible(map: MapLibreMap) {
-      const elements = [map.getContainer(), map.getCanvasContainer(), map.getCanvas()];
+      const container = map.getContainer();
+      const canvasContainer = map.getCanvasContainer();
+      const canvas = map.getCanvas();
 
-      elements.forEach((element) => {
-        element.style.background = "transparent";
-        element.style.opacity = "1";
-        element.style.pointerEvents = "none";
-        element.style.visibility = "visible";
-      });
+      container.style.position = "absolute";
+      container.style.inset = "0";
+      container.style.zIndex = DEBUG_OVERLAY_STACK ? "9999" : "30";
+      container.style.background = "transparent";
+      container.style.opacity = "1";
+      container.style.pointerEvents = "none";
+      container.style.transform = "translateZ(0)";
+      container.style.visibility = "visible";
+
+      canvasContainer.style.position = "absolute";
+      canvasContainer.style.inset = "0";
+      canvasContainer.style.zIndex = DEBUG_OVERLAY_STACK ? "9999" : "30";
+      canvasContainer.style.background = "transparent";
+      canvasContainer.style.opacity = "1";
+      canvasContainer.style.pointerEvents = "none";
+      canvasContainer.style.transform = "translateZ(0)";
+      canvasContainer.style.visibility = "visible";
+      canvasContainer.style.outline = DEBUG_OVERLAY_STACK ? "3px solid blue" : "";
+
+      canvas.style.position = "absolute";
+      canvas.style.inset = "0";
+      canvas.style.zIndex = DEBUG_OVERLAY_STACK ? "9999" : "30";
+      canvas.style.background = "transparent";
+      canvas.style.opacity = "1";
+      canvas.style.pointerEvents = "none";
+      canvas.style.transform = "translateZ(0)";
+      canvas.style.visibility = "visible";
+      canvas.style.outline = DEBUG_OVERLAY_STACK ? "3px solid blue" : "";
     }
 
     function setOverlayTransitionState(isMoving: boolean) {
@@ -1311,6 +1364,95 @@ export default function NaverMap() {
           pointerEvents: canvasStyle.pointerEvents,
         },
       });
+    }
+
+    function collectOverlayDebugInfo(
+      map: MapLibreMap,
+      sourceLayer: string,
+      fileStatus: string,
+      headerLoaded: boolean
+    ) {
+      const overlay = overlayMapElementRef.current;
+      const canvas = map.getCanvas();
+      const overlayStyle = overlay ? getComputedStyle(overlay) : null;
+      const canvasStyle = getComputedStyle(canvas);
+      const fillLayerExists = Boolean(map.getLayer(EUPMYEONDONG_FILL_LAYER_ID));
+      const lineLayerExists = Boolean(map.getLayer(EUPMYEONDONG_LINE_LAYER_ID));
+      const renderedFeatures = fillLayerExists
+        ? map.queryRenderedFeatures({ layers: [EUPMYEONDONG_FILL_LAYER_ID] }).length
+        : 0;
+      const sourceFeatures = map.getSource(EUPMYEONDONG_SOURCE_ID)
+        ? map.querySourceFeatures(EUPMYEONDONG_SOURCE_ID, { sourceLayer }).length
+        : 0;
+
+      return {
+        fileStatus,
+        headerLoaded,
+        sourceId: EUPMYEONDONG_SOURCE_ID,
+        sourceLayer,
+        fillLayerExists,
+        lineLayerExists,
+        renderedFeatures,
+        sourceFeatures,
+        overlayZIndex: overlayStyle?.zIndex ?? "n/a",
+        canvasZIndex: canvasStyle.zIndex,
+        overlayOpacity: overlayStyle?.opacity ?? "n/a",
+        canvasOpacity: canvasStyle.opacity,
+        mapLibreZoom: Number(map.getZoom().toFixed(2)),
+        debugMode: [
+          DEBUG_MAP_MODE,
+          DEBUG_BOUNDARY_STYLE ? "boundary" : null,
+          DEBUG_OVERLAY_BACKGROUND ? "bg" : null,
+          DEBUG_OVERLAY_STACK ? "stack" : null,
+          DEBUG_MAP_OVERLAY ? "panel" : null,
+        ]
+          .filter(Boolean)
+          .join(" / "),
+      };
+    }
+
+    function refreshOverlayDebugInfo(
+      map: MapLibreMap,
+      sourceLayer: string,
+      fileStatus = "ok",
+      headerLoaded = true
+    ) {
+      if (!DEBUG_MAP_OVERLAY && !DEBUG_OVERLAY_STACK) {
+        return;
+      }
+
+      try {
+        setOverlayDebugInfo(collectOverlayDebugInfo(map, sourceLayer, fileStatus, headerLoaded));
+      } catch (error) {
+        console.warn("[Overlay debug] failed to collect state", error);
+      }
+    }
+
+    function bringPmtilesOverlayToFront(sourceLayer = EUPMYEONDONG_SOURCE_LAYER) {
+      if (!mapRef.current || !overlayMapElementRef.current) {
+        return;
+      }
+
+      overlayMapElementRef.current.style.position = "absolute";
+      overlayMapElementRef.current.style.inset = "0";
+      overlayMapElementRef.current.style.zIndex = "9999";
+      overlayMapElementRef.current.style.background = DEBUG_OVERLAY_BACKGROUND || DEBUG_OVERLAY_STACK
+        ? "rgba(255, 0, 0, 0.08)"
+        : "transparent";
+      overlayMapElementRef.current.style.outline = DEBUG_OVERLAY_STACK ? "3px solid red" : "";
+      overlayMapElementRef.current.style.pointerEvents = "none";
+      overlayMapElementRef.current.style.opacity = "1";
+      overlayMapElementRef.current.style.visibility = "visible";
+      overlayMapElementRef.current.style.transform = "translateZ(0)";
+      overlayMapElementRef.current.style.willChange = "transform";
+      mapRef.current.appendChild(overlayMapElementRef.current);
+
+      if (mapLibreMapRef.current) {
+        forceMapLibreDomVisible(mapLibreMapRef.current);
+        mapLibreMapRef.current.resize();
+        refreshOverlayDebugInfo(mapLibreMapRef.current, sourceLayer, "forced-front", true);
+        logOverlayStacking("[Overlay] forced to front", mapLibreMapRef.current);
+      }
     }
 
     async function initializeVectorTileOverlay() {
@@ -1563,6 +1705,9 @@ export default function NaverMap() {
           console.info("[MapSync] overlay zoom offset updated", { offset });
           syncOverlayToNaverMap("console-offset", "final");
         };
+        (window as NaverWindow).__bringPmtilesOverlayToFront = () => {
+          bringPmtilesOverlayToFront();
+        };
 
         const handleWindowResize = () => scheduleOverlaySync("window-resize", "final");
         window.addEventListener("resize", handleWindowResize);
@@ -1684,6 +1829,7 @@ export default function NaverMap() {
 
           overlayMap.on("idle", () => {
             if (hasLoggedIdle) {
+              refreshOverlayDebugInfo(overlayMap, boundarySourceLayer);
               return;
             }
 
@@ -1701,6 +1847,7 @@ export default function NaverMap() {
               renderedFeatures: renderedFeatures.length,
               sourceFeatures: sourceFeatures.length,
             });
+            refreshOverlayDebugInfo(overlayMap, boundarySourceLayer);
           });
 
           try {
@@ -1777,16 +1924,22 @@ export default function NaverMap() {
           console.info("[MapLibre paint]", {
             fillLayer: overlayMap.getLayer(EUPMYEONDONG_FILL_LAYER_ID),
             lineLayer: overlayMap.getLayer(EUPMYEONDONG_LINE_LAYER_ID),
+            fillVisibility:
+              overlayMap.getLayoutProperty(EUPMYEONDONG_FILL_LAYER_ID, "visibility") ?? "visible",
+            lineVisibility:
+              overlayMap.getLayoutProperty(EUPMYEONDONG_LINE_LAYER_ID, "visibility") ?? "visible",
             fillColor: overlayMap.getPaintProperty(EUPMYEONDONG_FILL_LAYER_ID, "fill-color"),
             fillOpacity: overlayMap.getPaintProperty(EUPMYEONDONG_FILL_LAYER_ID, "fill-opacity"),
             lineColor: overlayMap.getPaintProperty(EUPMYEONDONG_LINE_LAYER_ID, "line-color"),
             lineOpacity: overlayMap.getPaintProperty(EUPMYEONDONG_LINE_LAYER_ID, "line-opacity"),
             lineWidth: overlayMap.getPaintProperty(EUPMYEONDONG_LINE_LAYER_ID, "line-width"),
           });
+          refreshOverlayDebugInfo(overlayMap, boundarySourceLayer, "layers-ok", true);
           logOverlayStacking("[MapLibre canvas style after layers]", overlayMap);
           window.setTimeout(() => {
             forceMapLibreDomVisible(overlayMap);
             overlayMap.resize();
+            refreshOverlayDebugInfo(overlayMap, boundarySourceLayer, "post-resize", true);
           }, 300);
           window.setTimeout(() => {
             const renderedFeatures = overlayMap.queryRenderedFeatures({
@@ -1803,6 +1956,18 @@ export default function NaverMap() {
               center: overlayMap.getCenter().toArray(),
               bounds: overlayMap.getBounds().toArray(),
             });
+            refreshOverlayDebugInfo(overlayMap, boundarySourceLayer, "features-ok", true);
+
+            if (
+              renderedFeatures.length > 0 &&
+              !DEBUG_BOUNDARY_STYLE &&
+              !DEBUG_OVERLAY_BACKGROUND &&
+              !DEBUG_OVERLAY_STACK
+            ) {
+              console.warn(
+                "[MapLibre] features rendered but overlay is hard to visually confirm. Enable NEXT_PUBLIC_DEBUG_BOUNDARY_STYLE or NEXT_PUBLIC_DEBUG_OVERLAY_STACK."
+              );
+            }
           }, 1000);
 
           if (DEBUG_FIXED_OVERLAY_VIEW) {
@@ -2066,6 +2231,9 @@ export default function NaverMap() {
       removeWindowResizeListener = null;
       if ((window as NaverWindow).__setOverlayZoomOffset) {
         delete (window as NaverWindow).__setOverlayZoomOffset;
+      }
+      if ((window as NaverWindow).__bringPmtilesOverlayToFront) {
+        delete (window as NaverWindow).__bringPmtilesOverlayToFront;
       }
       resizeObserver?.disconnect();
       mapLibreMapRef.current?.remove();
@@ -3050,7 +3218,7 @@ export default function NaverMap() {
             <div
               ref={mapRef}
               data-testid="map-viewport"
-              className="map-interaction-surface relative h-full w-full overflow-hidden"
+              className="map-interaction-surface relative isolate h-full w-full overflow-hidden"
             >
               <div
                 ref={naverMapElementRef}
@@ -3059,23 +3227,28 @@ export default function NaverMap() {
               />
               <div
                 ref={overlayMapElementRef}
-                className={`maplibre-gl-transparent pointer-events-none absolute inset-0 z-20 ${
+                className={`maplibre-gl-transparent pointer-events-none absolute inset-0 z-30 ${
                   DEBUG_MAP_MODE === "naver-only" ? "hidden" : ""
                 }`}
                 style={{
-                  background: DEBUG_OVERLAY_BACKGROUND ? "rgba(255, 0, 0, 0.08)" : "transparent",
+                  background: DEBUG_OVERLAY_BACKGROUND || DEBUG_OVERLAY_STACK
+                    ? "rgba(255, 0, 0, 0.08)"
+                    : "transparent",
                   height: "100%",
                   inset: 0,
                   opacity: 1,
+                  outline: DEBUG_OVERLAY_STACK ? "3px solid red" : "",
                   pointerEvents: "none",
                   position: "absolute",
+                  transform: "translateZ(0)",
                   visibility: "visible",
+                  willChange: "transform",
                   width: "100%",
-                  zIndex: 20,
+                  zIndex: DEBUG_OVERLAY_STACK ? 9999 : 30,
                 }}
               />
             </div>
-            <div className="pointer-events-none absolute left-3 top-3 z-30 flex max-w-[calc(100%-1.5rem)] flex-col gap-2 sm:left-4 sm:top-4 sm:max-w-[360px]">
+            <div className="pointer-events-none absolute left-3 top-3 z-40 flex max-w-[calc(100%-1.5rem)] flex-col gap-2 sm:left-4 sm:top-4 sm:max-w-[360px]">
               <div className="rounded-2xl border border-white/70 bg-white/90 px-3 py-2 text-xs font-medium text-slate-800 shadow-lg backdrop-blur sm:px-4 sm:py-3 sm:text-sm">
                 {hoveredDongName
                   ? `현재 보기: ${hoveredDongName}`
@@ -3091,7 +3264,7 @@ export default function NaverMap() {
               ) : null}
             </div>
 
-            <div className="pointer-events-none absolute bottom-3 left-3 z-20 hidden max-w-[calc(100%-1.5rem)] sm:bottom-4 sm:left-4">
+            <div className="pointer-events-none absolute bottom-3 left-3 z-40 hidden max-w-[calc(100%-1.5rem)] sm:bottom-4 sm:left-4">
               <div className="rounded-2xl border border-white/70 bg-white/90 p-2 shadow-lg backdrop-blur sm:p-4">
                 <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-500 sm:mb-2 sm:text-[11px] sm:tracking-[0.24em]">
                   Legend
@@ -3109,6 +3282,24 @@ export default function NaverMap() {
                 </div>
               </div>
             </div>
+
+            {(DEBUG_MAP_OVERLAY || DEBUG_OVERLAY_STACK) && overlayDebugInfo ? (
+              <div className="pointer-events-none absolute bottom-3 right-3 z-40 max-w-[calc(100%-1.5rem)] rounded-xl border border-slate-300/80 bg-white/90 p-3 font-mono text-[10px] leading-4 text-slate-700 shadow-lg backdrop-blur sm:bottom-4 sm:right-4 sm:text-[11px]">
+                <div className="mb-1 font-sans text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                  Overlay Debug
+                </div>
+                <div>file: {overlayDebugInfo.fileStatus}</div>
+                <div>header: {overlayDebugInfo.headerLoaded ? "loaded" : "pending"}</div>
+                <div>source: {overlayDebugInfo.sourceId}</div>
+                <div>layer: {overlayDebugInfo.sourceLayer}</div>
+                <div>fill/line: {overlayDebugInfo.fillLayerExists ? "Y" : "N"} / {overlayDebugInfo.lineLayerExists ? "Y" : "N"}</div>
+                <div>features: {overlayDebugInfo.renderedFeatures} / {overlayDebugInfo.sourceFeatures}</div>
+                <div>z: {overlayDebugInfo.overlayZIndex} / {overlayDebugInfo.canvasZIndex}</div>
+                <div>opacity: {overlayDebugInfo.overlayOpacity} / {overlayDebugInfo.canvasOpacity}</div>
+                <div>zoom: {overlayDebugInfo.mapLibreZoom ?? "n/a"}</div>
+                <div>mode: {overlayDebugInfo.debugMode}</div>
+              </div>
+            ) : null}
 
           </div>
         </section>

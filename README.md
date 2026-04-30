@@ -102,6 +102,8 @@ NEXT_PUBLIC_NAVER_MAP_CLIENT_ID=your_naver_map_client_id
 NEXT_PUBLIC_MAPLIBRE_ZOOM_OFFSET=-1
 NEXT_PUBLIC_DEBUG_BOUNDARY_STYLE=false
 NEXT_PUBLIC_DEBUG_OVERLAY_BACKGROUND=false
+NEXT_PUBLIC_DEBUG_OVERLAY_STACK=false
+NEXT_PUBLIC_DEBUG_MAP_OVERLAY=false
 NEXT_PUBLIC_DEBUG_FIXED_OVERLAY_VIEW=false
 NEXT_PUBLIC_DEBUG_REGION_LABEL=false
 NEXT_PUBLIC_PMTILES_URL=
@@ -113,6 +115,8 @@ NEXT_PUBLIC_PMTILES_URL=
 - `NEXT_PUBLIC_MAPLIBRE_ZOOM_OFFSET`: Naver Map과 MapLibre overlay zoom 보정값. 경계와 배경이 어긋나면 `-2`, `-1`, `0`, `1`, `2`를 테스트합니다.
 - `NEXT_PUBLIC_DEBUG_BOUNDARY_STYLE`: `true`일 때 PMTiles 경계를 강한 빨간색/검정색으로 표시합니다.
 - `NEXT_PUBLIC_DEBUG_OVERLAY_BACKGROUND`: `true`일 때 overlay 영역을 옅은 빨간 배경으로 표시합니다.
+- `NEXT_PUBLIC_DEBUG_OVERLAY_STACK`: `true`일 때 PMTiles overlay와 canvas에 강한 z-index, 빨간/파란 outline을 적용해 stacking 문제를 확인합니다.
+- `NEXT_PUBLIC_DEBUG_MAP_OVERLAY`: `true`일 때 지도 위에 PMTiles source/layer/render 상태 패널을 표시합니다.
 - `NEXT_PUBLIC_DEBUG_FIXED_OVERLAY_VIEW`: `true`일 때 MapLibre overlay를 고정 테스트 뷰로 표시합니다.
 - `NEXT_PUBLIC_DEBUG_REGION_LABEL`: `true`일 때 Safari 한글 깨짐 확인용으로 지역 raw properties와 최종 표시 라벨을 최대 10개만 출력합니다.
 - `NEXT_PUBLIC_PMTILES_URL`: 선택값. 외부 Storage/CDN에 PMTiles를 올릴 때 절대 URL을 지정합니다. 없으면 `/tiles/eupmyeondong.pmtiles`를 사용합니다.
