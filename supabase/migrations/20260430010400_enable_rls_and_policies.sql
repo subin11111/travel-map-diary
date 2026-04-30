@@ -146,7 +146,9 @@ as $$
   limit 1
 $$;
 
-create or replace function public.create_travel_map(
+drop function if exists public.create_travel_map(text, text);
+
+create function public.create_travel_map(
   p_title text,
   p_description text default null
 )
