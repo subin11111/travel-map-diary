@@ -34,6 +34,13 @@ type VisitStats = {
   topVisitCount: number;
 };
 
+type VisitCountBuckets = {
+  one: string[];
+  twoToThree: string[];
+  fourToSix: string[];
+  sevenPlus: string[];
+};
+
 type DrawerTab = "map" | "settings" | "stats" | "status" | "records" | "account";
 type TimelineSort = "entry-desc" | "entry-asc" | "created-desc";
 
@@ -122,46 +129,80 @@ const DEBUG_OVERLAY_BACKGROUND = process.env.NEXT_PUBLIC_DEBUG_OVERLAY_BACKGROUN
 
 let isPmtilesProtocolRegistered = false;
 
-function getDongColorByVisitCount(visitCount: number) {
-  if (visitCount <= 0) {
-    return {
-      fillColor: "#E5E7EB",
-      strokeColor: "#64748B",
-      fillOpacity: 0.28,
-    };
-  }
+const REGION_VISIT_COLORS = {
+  default: {
+    fillColor: "#F3F7FA",
+    strokeColor: "#B6C3D1",
+    fillOpacity: 0.12,
+    strokeOpacity: 0.65,
+    strokeWeight: 0.7,
+  },
+  one: {
+    fillColor: "#BDE8F5",
+    strokeColor: "#4988C4",
+    fillOpacity: 0.35,
+    strokeOpacity: 0.82,
+    strokeWeight: 0.85,
+  },
+  twoToThree: {
+    fillColor: "#4988C4",
+    strokeColor: "#1C4D8D",
+    fillOpacity: 0.45,
+    strokeOpacity: 0.9,
+    strokeWeight: 0.95,
+  },
+  fourToSix: {
+    fillColor: "#1C4D8D",
+    strokeColor: "#0F2854",
+    fillOpacity: 0.55,
+    strokeOpacity: 0.95,
+    strokeWeight: 1.1,
+  },
+  sevenPlus: {
+    fillColor: "#0F2854",
+    strokeColor: "#0F2854",
+    fillOpacity: 0.65,
+    strokeOpacity: 1,
+    strokeWeight: 1.2,
+  },
+} satisfies Record<string, VisitStyle>;
 
-  return { fillColor: "#22C55E", strokeColor: "#15803D", fillOpacity: 0.5 };
+const REGION_STATUS_COLORS = {
+  topStat: {
+    fillColor: "#1C4D8D",
+    strokeColor: "#0F2854",
+    fillOpacity: 0.6,
+    strokeOpacity: 1,
+    strokeWeight: 2.2,
+  },
+  selected: {
+    fillColor: "#BDE8F5",
+    strokeColor: "#0F2854",
+    fillOpacity: 0.65,
+    strokeOpacity: 1,
+    strokeWeight: 3,
+  },
+} satisfies Record<string, VisitStyle>;
+
+function getRegionStyleByVisitCount(visitCount: number): VisitStyle {
+  if (visitCount >= 7) return REGION_VISIT_COLORS.sevenPlus;
+  if (visitCount >= 4) return REGION_VISIT_COLORS.fourToSix;
+  if (visitCount >= 2) return REGION_VISIT_COLORS.twoToThree;
+  if (visitCount >= 1) return REGION_VISIT_COLORS.one;
+
+  return REGION_VISIT_COLORS.default;
 }
 
 function getVisitStyle(count: number): VisitStyle {
-  const color = getDongColorByVisitCount(count);
-
-  return {
-    ...color,
-    strokeOpacity: 0.9,
-    strokeWeight: 0.8,
-  };
+  return getRegionStyleByVisitCount(count);
 }
 
 function getTopStatDongStyle(): VisitStyle {
-  return {
-    fillColor: "#F59E0B",
-    fillOpacity: 0.5,
-    strokeColor: "#B45309",
-    strokeOpacity: 0.95,
-    strokeWeight: 2,
-  };
+  return REGION_STATUS_COLORS.topStat;
 }
 
 function getSelectedDongStyle(): VisitStyle {
-  return {
-    fillColor: "#60A5FA",
-    fillOpacity: 0.65,
-    strokeColor: "#2563EB",
-    strokeOpacity: 1,
-    strokeWeight: 2.5,
-  };
+  return REGION_STATUS_COLORS.selected;
 }
 
 function getBoundaryFeatureProperties(feature: BoundaryFeature | null | undefined) {
@@ -179,10 +220,33 @@ function getBoundaryFeatureProperties(feature: BoundaryFeature | null | undefine
   return { dongCode: String(dongCode), dongName: String(dongName) };
 }
 
+function getVisitCountBuckets(visitCounts: Map<string, number>): VisitCountBuckets {
+  const buckets: VisitCountBuckets = {
+    one: [],
+    twoToThree: [],
+    fourToSix: [],
+    sevenPlus: [],
+  };
+
+  visitCounts.forEach((count, dongCode) => {
+    if (count >= 7) {
+      buckets.sevenPlus.push(dongCode);
+    } else if (count >= 4) {
+      buckets.fourToSix.push(dongCode);
+    } else if (count >= 2) {
+      buckets.twoToThree.push(dongCode);
+    } else if (count >= 1) {
+      buckets.one.push(dongCode);
+    }
+  });
+
+  return buckets;
+}
+
 function buildVisitFillExpression(
   selectedDongCode: string | null,
   topStatDongCodes: string[],
-  visitedDongCodes: string[]
+  visitCountBuckets: VisitCountBuckets
 ) {
   return [
     "case",
@@ -190,7 +254,13 @@ function buildVisitFillExpression(
     getSelectedDongStyle().fillColor,
     ["in", ["get", "emd_code"], ["literal", topStatDongCodes]],
     getTopStatDongStyle().fillColor,
-    ["in", ["get", "emd_code"], ["literal", visitedDongCodes]],
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.sevenPlus]],
+    getVisitStyle(7).fillColor,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.fourToSix]],
+    getVisitStyle(4).fillColor,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.twoToThree]],
+    getVisitStyle(2).fillColor,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.one]],
     getVisitStyle(1).fillColor,
     getVisitStyle(0).fillColor,
   ];
@@ -199,7 +269,7 @@ function buildVisitFillExpression(
 function buildVisitOpacityExpression(
   selectedDongCode: string | null,
   topStatDongCodes: string[],
-  visitedDongCodes: string[]
+  visitCountBuckets: VisitCountBuckets
 ) {
   return [
     "case",
@@ -207,7 +277,13 @@ function buildVisitOpacityExpression(
     getSelectedDongStyle().fillOpacity,
     ["in", ["get", "emd_code"], ["literal", topStatDongCodes]],
     getTopStatDongStyle().fillOpacity,
-    ["in", ["get", "emd_code"], ["literal", visitedDongCodes]],
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.sevenPlus]],
+    getVisitStyle(7).fillOpacity,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.fourToSix]],
+    getVisitStyle(4).fillOpacity,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.twoToThree]],
+    getVisitStyle(2).fillOpacity,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.one]],
     getVisitStyle(1).fillOpacity,
     getVisitStyle(0).fillOpacity,
   ];
@@ -216,7 +292,7 @@ function buildVisitOpacityExpression(
 function buildVisitStrokeExpression(
   selectedDongCode: string | null,
   topStatDongCodes: string[],
-  visitedDongCodes: string[]
+  visitCountBuckets: VisitCountBuckets
 ) {
   return [
     "case",
@@ -224,19 +300,60 @@ function buildVisitStrokeExpression(
     getSelectedDongStyle().strokeColor,
     ["in", ["get", "emd_code"], ["literal", topStatDongCodes]],
     getTopStatDongStyle().strokeColor,
-    ["in", ["get", "emd_code"], ["literal", visitedDongCodes]],
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.sevenPlus]],
+    getVisitStyle(7).strokeColor,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.fourToSix]],
+    getVisitStyle(4).strokeColor,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.twoToThree]],
+    getVisitStyle(2).strokeColor,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.one]],
     getVisitStyle(1).strokeColor,
     getVisitStyle(0).strokeColor,
   ];
 }
 
-function buildVisitStrokeWidthExpression(selectedDongCode: string | null, topStatDongCodes: string[]) {
+function buildVisitStrokeOpacityExpression(
+  selectedDongCode: string | null,
+  topStatDongCodes: string[],
+  visitCountBuckets: VisitCountBuckets
+) {
+  return [
+    "case",
+    ["==", ["get", "emd_code"], selectedDongCode ?? ""],
+    getSelectedDongStyle().strokeOpacity,
+    ["in", ["get", "emd_code"], ["literal", topStatDongCodes]],
+    getTopStatDongStyle().strokeOpacity,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.sevenPlus]],
+    getVisitStyle(7).strokeOpacity,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.fourToSix]],
+    getVisitStyle(4).strokeOpacity,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.twoToThree]],
+    getVisitStyle(2).strokeOpacity,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.one]],
+    getVisitStyle(1).strokeOpacity,
+    getVisitStyle(0).strokeOpacity,
+  ];
+}
+
+function buildVisitStrokeWidthExpression(
+  selectedDongCode: string | null,
+  topStatDongCodes: string[],
+  visitCountBuckets: VisitCountBuckets
+) {
   return [
     "case",
     ["==", ["get", "emd_code"], selectedDongCode ?? ""],
     getSelectedDongStyle().strokeWeight,
     ["in", ["get", "emd_code"], ["literal", topStatDongCodes]],
     getTopStatDongStyle().strokeWeight,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.sevenPlus]],
+    getVisitStyle(7).strokeWeight,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.fourToSix]],
+    getVisitStyle(4).strokeWeight,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.twoToThree]],
+    getVisitStyle(2).strokeWeight,
+    ["in", ["get", "emd_code"], ["literal", visitCountBuckets.one]],
+    getVisitStyle(1).strokeWeight,
     getVisitStyle(0).strokeWeight,
   ];
 }
@@ -463,32 +580,34 @@ export default function NaverMap() {
       return;
     }
 
-    const visitedDongCodes = [...visitCountByDongRef.current.entries()]
-      .filter(([, count]) => count > 0)
-      .map(([dongCode]) => dongCode);
+    const visitCountBuckets = getVisitCountBuckets(visitCountByDongRef.current);
     const topStatDongCodes = [...topStatDongCodesRef.current];
     const selectedDongCode = selectedDongCodeRef.current;
 
     map.setPaintProperty(
       EUPMYEONDONG_FILL_LAYER_ID,
       "fill-color",
-      buildVisitFillExpression(selectedDongCode, topStatDongCodes, visitedDongCodes)
+      buildVisitFillExpression(selectedDongCode, topStatDongCodes, visitCountBuckets)
     );
     map.setPaintProperty(
       EUPMYEONDONG_FILL_LAYER_ID,
       "fill-opacity",
-      buildVisitOpacityExpression(selectedDongCode, topStatDongCodes, visitedDongCodes)
+      buildVisitOpacityExpression(selectedDongCode, topStatDongCodes, visitCountBuckets)
     );
     map.setPaintProperty(
       EUPMYEONDONG_LINE_LAYER_ID,
       "line-color",
-      buildVisitStrokeExpression(selectedDongCode, topStatDongCodes, visitedDongCodes)
+      buildVisitStrokeExpression(selectedDongCode, topStatDongCodes, visitCountBuckets)
     );
-    map.setPaintProperty(EUPMYEONDONG_LINE_LAYER_ID, "line-opacity", 0.9);
+    map.setPaintProperty(
+      EUPMYEONDONG_LINE_LAYER_ID,
+      "line-opacity",
+      buildVisitStrokeOpacityExpression(selectedDongCode, topStatDongCodes, visitCountBuckets)
+    );
     map.setPaintProperty(
       EUPMYEONDONG_LINE_LAYER_ID,
       "line-width",
-      buildVisitStrokeWidthExpression(selectedDongCode, topStatDongCodes)
+      buildVisitStrokeWidthExpression(selectedDongCode, topStatDongCodes, visitCountBuckets)
     );
   }, []);
 
@@ -1631,6 +1750,23 @@ export default function NaverMap() {
     { id: "records", label: "전체 기록" },
     { id: "account", label: "계정" },
   ];
+  const regionStatusItems = [
+    ["방문 전", getVisitStyle(0).fillColor, "아직 기록이 없는 읍면동입니다."],
+    ["1회 방문", getVisitStyle(1).fillColor, "한 번 방문한 지역입니다."],
+    ["2~3회 방문", getVisitStyle(2).fillColor, "여러 번 다시 찾은 지역입니다."],
+    ["4~6회 방문", getVisitStyle(4).fillColor, "자주 방문한 지역입니다."],
+    ["7회 이상 방문", getVisitStyle(7).fillColor, "가장 진하게 표시되는 집중 방문 지역입니다."],
+    ["통계 상위 지역", getTopStatDongStyle().fillColor, visitStats.topDongName ? `${visitStats.topDongName} · ${visitStats.topVisitCount}회` : "아직 상위 지역이 없습니다."],
+    ["선택된 지역", getSelectedDongStyle().fillColor, selectedDong ? selectedDong.dongName : "아직 선택된 지역이 없습니다."],
+  ] as const;
+  const regionLegendItems = [
+    ["방문 전", getVisitStyle(0).fillColor, getVisitStyle(0).strokeColor],
+    ["1회 방문", getVisitStyle(1).fillColor, getVisitStyle(1).strokeColor],
+    ["2~3회 방문", getVisitStyle(2).fillColor, getVisitStyle(2).strokeColor],
+    ["4~6회 방문", getVisitStyle(4).fillColor, getVisitStyle(4).strokeColor],
+    ["7회 이상", getVisitStyle(7).fillColor, getVisitStyle(7).strokeColor],
+    ["선택됨", getSelectedDongStyle().fillColor, getSelectedDongStyle().strokeColor],
+  ] as const;
   const renderTimelineSortSelect = () => (
     <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
       정렬
@@ -1977,12 +2113,7 @@ export default function NaverMap() {
 
               {activeDrawerTab === "status" ? (
                 <div className="space-y-3">
-                  {[
-                    ["방문 전 지역", "#E5E7EB", "아직 기록이 없는 읍면동입니다."],
-                    ["방문 지역", "#22C55E", "방문 기록이 있는 읍면동입니다."],
-                    ["통계 상위 지역", "#F59E0B", visitStats.topDongName ? `${visitStats.topDongName} · ${visitStats.topVisitCount}회` : "아직 상위 지역이 없습니다."],
-                    ["선택된 지역", "#BDE8F5", selectedDong ? selectedDong.dongName : "아직 선택된 지역이 없습니다."],
-                  ].map(([label, color, detail]) => (
+                  {regionStatusItems.map(([label, color, detail]) => (
                     <div key={label} className="flex items-center gap-3 rounded-[24px] border border-white/10 bg-white/5 p-4">
                       <span className="h-4 w-4 rounded-full border border-white/50" style={{ backgroundColor: color }} />
                       <div>
@@ -2255,22 +2386,15 @@ export default function NaverMap() {
                   Legend
                 </div>
                 <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-1">
-                  <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-[#9CA3AF] bg-[#E5E7EB]" />
-                    방문 전
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-[#15803D] bg-[#22C55E]" />
-                    방문 있음
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-[#B45309] bg-[#F59E0B]" />
-                    통계 상위
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border-2 border-[#0F2854] bg-[#BDE8F5]" />
-                    선택됨
-                  </div>
+                  {regionLegendItems.map(([label, fillColor, strokeColor]) => (
+                    <div key={label} className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
+                      <span
+                        className="h-2 w-2 rounded-full border"
+                        style={{ backgroundColor: fillColor, borderColor: strokeColor }}
+                      />
+                      {label}
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
