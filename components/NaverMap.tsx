@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
+import type { Map as MapLibreMap, MapLayerMouseEvent } from "maplibre-gl";
 import { supabase } from "../lib/supabase";
 import MapCreateModal from "@/components/MapCreateModal";
 import MapEditModal from "@/components/MapEditModal";
@@ -46,105 +47,27 @@ type DongDiary = {
   created_at: string;
 };
 
-type PolygonCoordinates = number[][][];
-type MultiPolygonCoordinates = number[][][][];
-
-type GeoJsonFeature = {
+type BoundaryFeature = {
   properties: {
-    emd_code?: string;
+    emd_code?: string | number;
     emd_name?: string;
-    EMD_CD?: string;
+    EMD_CD?: string | number;
     EMD_NM?: string;
   };
-  geometry:
-    | {
-        type: "Polygon";
-        coordinates: PolygonCoordinates;
-      }
-    | {
-        type: "MultiPolygon";
-        coordinates: MultiPolygonCoordinates;
-      };
 };
 
-type GeoJsonCollection = {
-  features: GeoJsonFeature[];
-};
+const EUPMYEONDONG_PMTILES_PATH = "/tiles/eupmyeondong.pmtiles";
+const EUPMYEONDONG_SOURCE_ID = "eupmyeondong-boundaries";
+const EUPMYEONDONG_SOURCE_LAYER = "eupmyeondong";
+const EUPMYEONDONG_FILL_LAYER_ID = "eupmyeondong-fill";
+const EUPMYEONDONG_LINE_LAYER_ID = "eupmyeondong-line";
+const NATIONAL_EUPMYEONDONG_COUNT = 5028;
+const SEOUL_BOUNDS: [[number, number], [number, number]] = [
+  [126.75, 37.42],
+  [127.2, 37.72],
+];
 
-type NaverPolygonInstance = {
-  setOptions: (options: VisitStyle & { zIndex: number }) => void;
-};
-
-type NaverMapInstance = {
-  fitBounds: (bounds: unknown) => void;
-};
-
-type NaverMapApi = {
-  maps: {
-    Map: new (
-      element: HTMLDivElement,
-      options: {
-        center: unknown;
-        zoom: number;
-        disableDoubleClickZoom: boolean;
-      }
-    ) => NaverMapInstance;
-    LatLng: new (lat: number, lng: number) => unknown;
-    LatLngBounds: new (sw: unknown, ne: unknown) => unknown;
-    Polygon: new (options: {
-      map: unknown;
-      paths: unknown[] | unknown[][];
-      clickable: boolean;
-      zIndex: number;
-    } & VisitStyle) => NaverPolygonInstance;
-    Event: {
-      addListener: (
-        target: NaverPolygonInstance,
-        eventName: string,
-        handler: () => void
-      ) => void;
-    };
-  };
-};
-
-type NaverWindow = Window & {
-  naver?: NaverMapApi;
-};
-
-const EUPMYEONDONG_GEOJSON_PATH = "/geo/eupmyeondong.geojson";
-const INITIAL_RENDER_EMD_PREFIX = "11";
-const DEBUG_FIT_BOUNDS_TO_BOUNDARY = process.env.NODE_ENV !== "production";
-
-type BoundaryBounds = {
-  minLng: number;
-  maxLng: number;
-  minLat: number;
-  maxLat: number;
-};
-
-function createEmptyBoundaryBounds(): BoundaryBounds {
-  return {
-    minLng: Number.POSITIVE_INFINITY,
-    maxLng: Number.NEGATIVE_INFINITY,
-    minLat: Number.POSITIVE_INFINITY,
-    maxLat: Number.NEGATIVE_INFINITY,
-  };
-}
-
-function extendBoundaryBounds(bounds: BoundaryBounds, lng: number, lat: number) {
-  bounds.minLng = Math.min(bounds.minLng, lng);
-  bounds.maxLng = Math.max(bounds.maxLng, lng);
-  bounds.minLat = Math.min(bounds.minLat, lat);
-  bounds.maxLat = Math.max(bounds.maxLat, lat);
-}
-
-function getFirstGeoJsonCoordinate(feature: GeoJsonFeature) {
-  if (feature.geometry.type === "Polygon") {
-    return feature.geometry.coordinates[0]?.[0] ?? null;
-  }
-
-  return feature.geometry.coordinates[0]?.[0]?.[0] ?? null;
-}
+let isPmtilesProtocolRegistered = false;
 
 function getDongColorByVisitCount(visitCount: number) {
   if (visitCount <= 0) {
@@ -178,16 +101,6 @@ function getTopStatDongStyle(): VisitStyle {
   };
 }
 
-function getHoverVisitStyle(count: number): VisitStyle {
-  const baseStyle = getVisitStyle(count);
-
-  return {
-    ...baseStyle,
-    fillOpacity: Math.min(baseStyle.fillOpacity + 0.2, 0.78),
-    strokeWeight: Math.max(baseStyle.strokeWeight, 2),
-  };
-}
-
 function getSelectedDongStyle(): VisitStyle {
   return {
     fillColor: "#BDE8F5",
@@ -198,7 +111,11 @@ function getSelectedDongStyle(): VisitStyle {
   };
 }
 
-function getGeoJsonDongProperties(feature: GeoJsonFeature) {
+function getBoundaryFeatureProperties(feature: BoundaryFeature | null | undefined) {
+  if (!feature?.properties) {
+    return null;
+  }
+
   const dongCode = feature.properties.emd_code ?? feature.properties.EMD_CD;
   const dongName = feature.properties.emd_name ?? feature.properties.EMD_NM;
 
@@ -206,7 +123,69 @@ function getGeoJsonDongProperties(feature: GeoJsonFeature) {
     return null;
   }
 
-  return { dongCode, dongName };
+  return { dongCode: String(dongCode), dongName: String(dongName) };
+}
+
+function buildVisitFillExpression(
+  selectedDongCode: string | null,
+  topStatDongCodes: string[],
+  visitedDongCodes: string[]
+) {
+  return [
+    "case",
+    ["==", ["get", "emd_code"], selectedDongCode ?? ""],
+    getSelectedDongStyle().fillColor,
+    ["in", ["get", "emd_code"], ["literal", topStatDongCodes]],
+    getTopStatDongStyle().fillColor,
+    ["in", ["get", "emd_code"], ["literal", visitedDongCodes]],
+    getVisitStyle(1).fillColor,
+    getVisitStyle(0).fillColor,
+  ];
+}
+
+function buildVisitOpacityExpression(
+  selectedDongCode: string | null,
+  topStatDongCodes: string[],
+  visitedDongCodes: string[]
+) {
+  return [
+    "case",
+    ["==", ["get", "emd_code"], selectedDongCode ?? ""],
+    getSelectedDongStyle().fillOpacity,
+    ["in", ["get", "emd_code"], ["literal", topStatDongCodes]],
+    getTopStatDongStyle().fillOpacity,
+    ["in", ["get", "emd_code"], ["literal", visitedDongCodes]],
+    getVisitStyle(1).fillOpacity,
+    getVisitStyle(0).fillOpacity,
+  ];
+}
+
+function buildVisitStrokeExpression(
+  selectedDongCode: string | null,
+  topStatDongCodes: string[],
+  visitedDongCodes: string[]
+) {
+  return [
+    "case",
+    ["==", ["get", "emd_code"], selectedDongCode ?? ""],
+    getSelectedDongStyle().strokeColor,
+    ["in", ["get", "emd_code"], ["literal", topStatDongCodes]],
+    getTopStatDongStyle().strokeColor,
+    ["in", ["get", "emd_code"], ["literal", visitedDongCodes]],
+    getVisitStyle(1).strokeColor,
+    getVisitStyle(0).strokeColor,
+  ];
+}
+
+function buildVisitStrokeWidthExpression(selectedDongCode: string | null, topStatDongCodes: string[]) {
+  return [
+    "case",
+    ["==", ["get", "emd_code"], selectedDongCode ?? ""],
+    getSelectedDongStyle().strokeWeight,
+    ["in", ["get", "emd_code"], ["literal", topStatDongCodes]],
+    getTopStatDongStyle().strokeWeight,
+    1,
+  ];
 }
 
 function formatDateTime(value: string) {
@@ -260,8 +239,7 @@ export default function NaverMap() {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const photoPreviewUrlRef = useRef<string | null>(null);
   const mapInitializedRef = useRef(false);
-  const mapDataLoadedRef = useRef(false);
-  const polygonGroupsRef = useRef(new Map<string, NaverPolygonInstance[]>());
+  const mapLibreMapRef = useRef<MapLibreMap | null>(null);
   const visitCountByDongRef = useRef(new Map<string, number>());
   const dongNameByCodeRef = useRef(new Map<string, string>());
   const topStatDongCodesRef = useRef(new Set<string>());
@@ -345,31 +323,47 @@ export default function NaverMap() {
     canEditCurrentMapRef.current = canEditCurrentMap;
   }, [canEditCurrentMap]);
 
-  const applyPolygonStyle = useCallback((dongCode: string, style: VisitStyle, zIndex: number) => {
-    const polygonGroup = polygonGroupsRef.current.get(dongCode);
+  const updateBoundaryLayerStyles = useCallback(() => {
+    const map = mapLibreMapRef.current;
 
-    polygonGroup?.forEach((polygon) => {
-      polygon.setOptions({
-        ...style,
-        zIndex,
-      });
-    });
+    if (!map?.getLayer(EUPMYEONDONG_FILL_LAYER_ID) || !map.getLayer(EUPMYEONDONG_LINE_LAYER_ID)) {
+      return;
+    }
+
+    const visitedDongCodes = [...visitCountByDongRef.current.entries()]
+      .filter(([, count]) => count > 0)
+      .map(([dongCode]) => dongCode);
+    const topStatDongCodes = [...topStatDongCodesRef.current];
+    const selectedDongCode = selectedDongCodeRef.current;
+
+    map.setPaintProperty(
+      EUPMYEONDONG_FILL_LAYER_ID,
+      "fill-color",
+      buildVisitFillExpression(selectedDongCode, topStatDongCodes, visitedDongCodes)
+    );
+    map.setPaintProperty(
+      EUPMYEONDONG_FILL_LAYER_ID,
+      "fill-opacity",
+      buildVisitOpacityExpression(selectedDongCode, topStatDongCodes, visitedDongCodes)
+    );
+    map.setPaintProperty(
+      EUPMYEONDONG_LINE_LAYER_ID,
+      "line-color",
+      buildVisitStrokeExpression(selectedDongCode, topStatDongCodes, visitedDongCodes)
+    );
+    map.setPaintProperty(
+      EUPMYEONDONG_LINE_LAYER_ID,
+      "line-width",
+      buildVisitStrokeWidthExpression(selectedDongCode, topStatDongCodes)
+    );
   }, []);
 
-  const restyleDong = useCallback((dongCode: string) => {
-    const count = visitCountByDongRef.current.get(dongCode) ?? 0;
-    const isSelected = selectedDongCodeRef.current === dongCode;
-    const isTopStat = topStatDongCodesRef.current.has(dongCode);
+  const restyleDong = useCallback(() => {
+    updateBoundaryLayerStyles();
+  }, [updateBoundaryLayerStyles]);
 
-    applyPolygonStyle(
-      dongCode,
-      isSelected ? getSelectedDongStyle() : isTopStat ? getTopStatDongStyle() : getVisitStyle(count),
-      isSelected ? 300 : isTopStat ? 180 : count > 0 ? 100 : 10
-    );
-  }, [applyPolygonStyle]);
-
-  const clearClickPulse = useCallback((dongCode: string) => {
-    restyleDong(dongCode);
+  const clearClickPulse = useCallback(() => {
+    restyleDong();
   }, [restyleDong]);
 
   function setHoverLabel(name: string | null) {
@@ -381,10 +375,7 @@ export default function NaverMap() {
     dongNameByCodeRef.current.clear();
     topStatDongCodesRef.current.clear();
     selectedDongCodeRef.current = null;
-
-    polygonGroupsRef.current.forEach((_, dongCode) => {
-      applyPolygonStyle(dongCode, getVisitStyle(0), 10);
-    });
+    updateBoundaryLayerStyles();
 
     setVisitStats({
       visitedDongCount: 0,
@@ -392,7 +383,7 @@ export default function NaverMap() {
       topDongName: null,
       topVisitCount: 0,
     });
-  }, [applyPolygonStyle]);
+  }, [updateBoundaryLayerStyles]);
 
   const syncSelectedMapState = useCallback(async (mapId: string | null) => {
     setSelectedDong(null);
@@ -499,10 +490,8 @@ export default function NaverMap() {
       topVisitCount,
     });
 
-    polygonGroupsRef.current.forEach((_, dongCode) => {
-      restyleDong(dongCode);
-    });
-  }, [resetUserScopedMapState, restyleDong]);
+    updateBoundaryLayerStyles();
+  }, [resetUserScopedMapState, updateBoundaryLayerStyles]);
 
   useEffect(() => {
     return () => {
@@ -619,254 +608,199 @@ export default function NaverMap() {
 
   useEffect(() => {
     let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-    async function initializeMapWhenReady() {
-      const naver = (window as NaverWindow).naver;
-      if (!naver?.maps || !mapRef.current) {
-        if (!cancelled) {
-          timeoutId = setTimeout(initializeMapWhenReady, 100);
-        }
-        return;
-      }
-
-      if (mapInitializedRef.current) {
+    async function initializeVectorTileMap() {
+      if (mapInitializedRef.current || !mapRef.current) {
         return;
       }
 
       mapInitializedRef.current = true;
-      const naverApi = naver;
 
-      if (!naverApi.maps.LatLng || !naverApi.maps.Polygon) {
-        console.warn("Naver Maps API is not ready for polygon rendering.", {
-          hasLatLng: Boolean(naverApi.maps.LatLng),
-          hasPolygon: Boolean(naverApi.maps.Polygon),
-        });
-        setStatusMessage("네이버 지도 API가 아직 준비되지 않아 경계를 표시하지 못했습니다.");
-        mapInitializedRef.current = false;
-        if (!cancelled) {
-          timeoutId = setTimeout(initializeMapWhenReady, 500);
-        }
-        return;
-      }
+      try {
+        const [{ default: maplibregl }, { Protocol }] = await Promise.all([
+          import("maplibre-gl"),
+          import("pmtiles"),
+        ]);
 
-      const map = new naverApi.maps.Map(mapRef.current, {
-        center: new naverApi.maps.LatLng(37.5665, 126.978),
-        zoom: 11,
-        disableDoubleClickZoom: true,
-      });
-
-      async function loadMap() {
-        if (mapDataLoadedRef.current) {
+        if (cancelled || !mapRef.current) {
           return;
         }
 
-        mapDataLoadedRef.current = true;
-        polygonGroupsRef.current.clear();
+        if (!isPmtilesProtocolRegistered) {
+          const protocol = new Protocol();
+          try {
+            maplibregl.addProtocol("pmtiles", protocol.tile);
+          } catch (error) {
+            console.warn("PMTiles protocol registration skipped.", error);
+          }
+          isPmtilesProtocolRegistered = true;
+        }
 
-        try {
-          const res = await fetch(EUPMYEONDONG_GEOJSON_PATH);
+        const map = new maplibregl.Map({
+          container: mapRef.current,
+          style: {
+            version: 8,
+            sources: {},
+            layers: [
+              {
+                id: "app-background",
+                type: "background",
+                paint: {
+                  "background-color": "#F8FAFC",
+                },
+              },
+            ],
+          },
+          center: [126.978, 37.5665],
+          zoom: 10.5,
+          minZoom: 6,
+          maxZoom: 18,
+          attributionControl: false,
+        });
 
-          if (!res.ok) {
-            const message = `${EUPMYEONDONG_GEOJSON_PATH} 파일을 불러오지 못했습니다. public/geo/eupmyeondong.geojson 파일이 있는지 확인하세요.`;
-            console.warn("GeoJSON fetch failed.", {
-              path: EUPMYEONDONG_GEOJSON_PATH,
-              status: res.status,
-              statusText: res.statusText,
-            });
-            setStatusMessage(message);
+        mapLibreMapRef.current = map;
+        map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+        map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
+
+        map.on("load", async () => {
+          if (cancelled) {
             return;
           }
 
-          const geojson = (await res.json()) as GeoJsonCollection;
-          const seoulFeatures = geojson.features.filter((feature) => {
-            const properties = getGeoJsonDongProperties(feature);
+          try {
+            const tileCheck = await fetch(EUPMYEONDONG_PMTILES_PATH, { method: "HEAD" });
 
-            return properties?.dongCode.startsWith(INITIAL_RENDER_EMD_PREFIX);
+            if (!tileCheck.ok) {
+              console.warn("PMTiles file is missing or unavailable.", {
+                path: EUPMYEONDONG_PMTILES_PATH,
+                status: tileCheck.status,
+                statusText: tileCheck.statusText,
+              });
+              setStatusMessage(
+                `${EUPMYEONDONG_PMTILES_PATH} 파일이 필요합니다. npm run tiles:build로 벡터 타일을 생성해 주세요.`
+              );
+              return;
+            }
+          } catch (error) {
+            console.warn("PMTiles availability check failed.", error);
+            setStatusMessage("벡터 타일 파일을 확인하지 못했습니다.");
+            return;
+          }
+
+          const pmtilesUrl = `pmtiles://${window.location.origin}${EUPMYEONDONG_PMTILES_PATH}`;
+
+          map.addSource(EUPMYEONDONG_SOURCE_ID, {
+            type: "vector",
+            url: pmtilesUrl,
+            attribution: "국토지리정보원 읍면동 경계",
           });
 
-          setTotalDongCount(seoulFeatures.length);
+          map.addLayer({
+            id: EUPMYEONDONG_FILL_LAYER_ID,
+            type: "fill",
+            source: EUPMYEONDONG_SOURCE_ID,
+            "source-layer": EUPMYEONDONG_SOURCE_LAYER,
+            paint: {
+              "fill-color": getVisitStyle(0).fillColor,
+              "fill-opacity": getVisitStyle(0).fillOpacity,
+            },
+          });
 
-          let polygonInstanceCount = 0;
-          const renderedBounds = createEmptyBoundaryBounds();
-          const firstFeature = seoulFeatures[0] ?? null;
-          const firstFeatureProperties = firstFeature
-            ? getGeoJsonDongProperties(firstFeature)
-            : null;
-          const firstCoordinate = firstFeature ? getFirstGeoJsonCoordinate(firstFeature) : null;
+          map.addLayer({
+            id: EUPMYEONDONG_LINE_LAYER_ID,
+            type: "line",
+            source: EUPMYEONDONG_SOURCE_ID,
+            "source-layer": EUPMYEONDONG_SOURCE_LAYER,
+            paint: {
+              "line-color": getVisitStyle(0).strokeColor,
+              "line-opacity": 0.8,
+              "line-width": 1,
+            },
+          });
 
-          seoulFeatures.forEach((feature) => {
-            const properties = getGeoJsonDongProperties(feature);
+          setTotalDongCount(NATIONAL_EUPMYEONDONG_COUNT);
+          updateBoundaryLayerStyles();
+
+          console.info("PMTiles boundary layer initialized.", {
+            path: EUPMYEONDONG_PMTILES_PATH,
+            sourceId: EUPMYEONDONG_SOURCE_ID,
+            sourceLayer: EUPMYEONDONG_SOURCE_LAYER,
+            expectedFeatureCount: NATIONAL_EUPMYEONDONG_COUNT,
+            visitedCodes: visitCountByDongRef.current.size,
+          });
+
+          if (process.env.NODE_ENV !== "production") {
+            map.fitBounds(SEOUL_BOUNDS, { padding: 24, duration: 0 });
+          }
+
+          map.on("mousemove", EUPMYEONDONG_FILL_LAYER_ID, (event: MapLayerMouseEvent) => {
+            const properties = getBoundaryFeatureProperties(event.features?.[0] as BoundaryFeature);
+            setHoverLabel(properties?.dongName ?? null);
+            map.getCanvas().style.cursor = properties ? "pointer" : "";
+          });
+
+          map.on("mouseleave", EUPMYEONDONG_FILL_LAYER_ID, () => {
+            setHoverLabel(null);
+            map.getCanvas().style.cursor = "";
+          });
+
+          map.on("click", EUPMYEONDONG_FILL_LAYER_ID, (event: MapLayerMouseEvent) => {
+            const properties = getBoundaryFeatureProperties(event.features?.[0] as BoundaryFeature);
 
             if (!properties) {
               return;
             }
 
+            const currentUser = authUserRef.current;
+            const selectedMap = currentMapRef.current;
+
+            if (!currentUser) {
+              setStatusMessage("로그인하면 개인 기록을 남길 수 있습니다.");
+              return;
+            }
+
+            if (!selectedMap) {
+              setStatusMessage("먼저 사용할 지도를 선택하거나 새 지도를 만들어 주세요.");
+              return;
+            }
+
             const { dongCode, dongName } = properties;
-            const visitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
-            const geometry = feature.geometry;
+            const currentVisitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
+            selectedDongCodeRef.current = dongCode;
+            setSelectedDong({ dongCode, dongName, visitCount: currentVisitCount });
+            setIsDongPanelOpen(true);
+            setIsDrawerOpen(false);
+            updateBoundaryLayerStyles();
 
-            if (geometry.type === "Polygon") {
-              drawPolygon(geometry.coordinates, dongCode, dongName, visitCount, renderedBounds);
-              polygonInstanceCount += 1;
+            if (clickPulseTimerRef.current) {
+              clearTimeout(clickPulseTimerRef.current);
             }
 
-            if (geometry.type === "MultiPolygon") {
-              geometry.coordinates.forEach((polygonCoords) => {
-                drawPolygon(polygonCoords, dongCode, dongName, visitCount, renderedBounds);
-                polygonInstanceCount += 1;
-              });
-            }
+            clickPulseTimerRef.current = setTimeout(() => {
+              clearClickPulse();
+            }, 380);
           });
+        });
 
-          if (firstCoordinate && firstFeatureProperties) {
-            const [lng, lat] = firstCoordinate;
-            console.info("GeoJSON first Seoul feature coordinate sample.", {
-              emdName: firstFeatureProperties.dongName,
-              emdCode: firstFeatureProperties.dongCode,
-              geometryType: firstFeature?.geometry.type,
-              coordinate: [lng, lat],
-              naverLatLngInput: { lat, lng },
-            });
-          }
-
-          console.info("GeoJSON boundary render complete.", {
-            path: EUPMYEONDONG_GEOJSON_PATH,
-            totalFeatures: geojson.features.length,
-            seoulFeatures: seoulFeatures.length,
-            polygonInstances: polygonInstanceCount,
-            polygonGroups: polygonGroupsRef.current.size,
-            bounds: renderedBounds,
-          });
-
-          if (
-            DEBUG_FIT_BOUNDS_TO_BOUNDARY &&
-            Number.isFinite(renderedBounds.minLng) &&
-            Number.isFinite(renderedBounds.minLat) &&
-            naverApi.maps.LatLngBounds
-          ) {
-            map.fitBounds(
-              new naverApi.maps.LatLngBounds(
-                new naverApi.maps.LatLng(renderedBounds.minLat, renderedBounds.minLng),
-                new naverApi.maps.LatLng(renderedBounds.maxLat, renderedBounds.maxLng)
-              )
-            );
-          }
-        } catch (error) {
-          console.warn("GeoJSON boundary render failed.", error);
-          setStatusMessage("GeoJSON 경계 데이터를 렌더링하지 못했습니다.");
-        }
+        map.on("error", (event) => {
+          console.warn("MapLibre map error.", event.error ?? event);
+        });
+      } catch (error) {
+        console.warn("MapLibre map initialization failed.", error);
+        setStatusMessage("벡터 타일 지도를 초기화하지 못했습니다.");
+        mapInitializedRef.current = false;
       }
-
-      function drawPolygon(
-        coords: PolygonCoordinates,
-        dongCode: string,
-        dongName: string,
-        initialVisitCount: number,
-        bounds: BoundaryBounds
-      ) {
-        const paths = coords.map((ring) =>
-          ring.map(([lng, lat]: number[]) => {
-            extendBoundaryBounds(bounds, lng, lat);
-
-            return new naverApi.maps.LatLng(lat, lng);
-          })
-        );
-
-        const polygon = new naverApi.maps.Polygon({
-          map,
-          paths,
-          clickable: true,
-          zIndex: topStatDongCodesRef.current.has(dongCode) ? 180 : initialVisitCount > 0 ? 100 : 10,
-          ...(topStatDongCodesRef.current.has(dongCode)
-            ? getTopStatDongStyle()
-            : getVisitStyle(initialVisitCount)),
-        });
-
-        const existingGroup = polygonGroupsRef.current.get(dongCode) ?? [];
-        existingGroup.push(polygon);
-        polygonGroupsRef.current.set(dongCode, existingGroup);
-
-        naverApi.maps.Event.addListener(polygon, "mouseover", () => {
-          const currentVisitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
-          const isSelected = selectedDongCodeRef.current === dongCode;
-          const isTopStat = topStatDongCodesRef.current.has(dongCode);
-          setHoverLabel(dongName);
-
-          if (!isSelected) {
-            polygon.setOptions({
-              ...(isTopStat ? getTopStatDongStyle() : getHoverVisitStyle(currentVisitCount)),
-              zIndex: isTopStat ? 180 : currentVisitCount > 0 ? 150 : 60,
-            });
-          }
-        });
-
-        naverApi.maps.Event.addListener(polygon, "mouseout", () => {
-          setHoverLabel(null);
-
-          if (selectedDongCodeRef.current === dongCode) {
-            polygon.setOptions({ ...getSelectedDongStyle(), zIndex: 300 });
-            return;
-          }
-
-          const currentVisitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
-          const isTopStat = topStatDongCodesRef.current.has(dongCode);
-          polygon.setOptions({
-            ...(isTopStat ? getTopStatDongStyle() : getVisitStyle(currentVisitCount)),
-            zIndex: isTopStat ? 180 : currentVisitCount > 0 ? 100 : 10,
-          });
-        });
-
-        naverApi.maps.Event.addListener(polygon, "click", () => {
-          const currentUser = authUserRef.current;
-          const selectedMap = currentMapRef.current;
-
-          if (!currentUser) {
-            setStatusMessage("로그인 후 개인 기록을 남길 수 있습니다.");
-            return;
-          }
-
-          if (!selectedMap) {
-            setStatusMessage("먼저 사용할 지도를 선택하거나 새 지도를 만드세요.");
-            return;
-          }
-
-          const currentVisitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
-          const previousSelectedDongCode = selectedDongCodeRef.current;
-          selectedDongCodeRef.current = dongCode;
-          setSelectedDong({ dongCode, dongName, visitCount: currentVisitCount });
-          setIsDongPanelOpen(true);
-          setIsDrawerOpen(false);
-
-          if (previousSelectedDongCode && previousSelectedDongCode !== dongCode) {
-            restyleDong(previousSelectedDongCode);
-          }
-
-          applyPolygonStyle(dongCode, getSelectedDongStyle(), 300);
-
-          if (clickPulseTimerRef.current) {
-            clearTimeout(clickPulseTimerRef.current);
-          }
-
-          clickPulseTimerRef.current = setTimeout(() => {
-            clearClickPulse(dongCode);
-          }, 380);
-        });
-      }
-
-      void loadMap();
     }
 
-    void initializeMapWhenReady();
+    void initializeVectorTileMap();
 
     return () => {
       cancelled = true;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
+      mapLibreMapRef.current?.remove();
+      mapLibreMapRef.current = null;
+      mapInitializedRef.current = false;
     };
-  }, [applyPolygonStyle, clearClickPulse, restyleDong]);
-
+  }, [clearClickPulse, updateBoundaryLayerStyles]);
   async function handleDiarySubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -978,7 +912,7 @@ export default function NaverMap() {
             dongName: selectedDong!.dongName,
             visitCount: nextVisitCount,
           });
-          restyleDong(selectedDong!.dongCode);
+          restyleDong();
           setVisitStats(() => {
             const visitEntries = Array.from(visitCountByDongRef.current.entries());
             const nextVisitedDongCount = visitEntries.filter(([, count]) => count > 0).length;
@@ -1006,9 +940,7 @@ export default function NaverMap() {
                   )
                 : new Set<string>();
 
-            polygonGroupsRef.current.forEach((_, dongCode) => {
-              restyleDong(dongCode);
-            });
+            updateBoundaryLayerStyles();
 
             return {
               visitedDongCount: nextVisitedDongCount,
@@ -1650,7 +1582,7 @@ export default function NaverMap() {
                     setIsDongPanelOpen(false);
                     setSelectedDong(null);
                     if (dongCode) {
-                      restyleDong(dongCode);
+                      restyleDong();
                     }
                   }}
                   className="rounded-full bg-white/10 px-3 py-1 text-sm font-medium text-white"
@@ -1861,3 +1793,4 @@ export default function NaverMap() {
     </main>
   );
 }
+

@@ -7,13 +7,16 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "tiles:build": "powershell -ExecutionPolicy Bypass -File tmd_preprocess/build_pmtiles.ps1",
     "db:link": "npx supabase link --project-ref kpibshapazejhkgblrmb",
     "db:push": "npx supabase db push",
     "db:status": "npx supabase migration list"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",
+    "maplibre-gl": "^5.24.0",
     "next": "16.2.4",
+    "pmtiles": "^4.4.1",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },

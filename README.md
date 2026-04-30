@@ -261,3 +261,22 @@ npm run db:push
 - 앱에 포함해야 하는 작은 샘플/기본 경계 데이터만 별도로 검토 후 커밋
 
 데이터를 다시 만들 때는 `tmd_preprocess` 또는 `scripts`의 변환 스크립트를 사용해 로컬에서 CSV를 전처리하고 GeoJSON을 생성하세요.
+
+## 전국 읍면동 벡터 타일
+
+전국 읍면동 경계는 런타임에서 대용량 GeoJSON을 직접 fetch하지 않고 PMTiles 벡터 타일로 로드합니다.
+
+```bash
+python tmd_preprocess/convert_to_geojson.py --input "data/raw/국토교통부 국토지리정보원_공간정보공동활용_읍면동_20230915.csv" --output public/geo/eupmyeondong.geojson --source-crs EPSG:4326
+npm run tiles:build
+```
+
+`npm run tiles:build`는 `tippecanoe` CLI가 필요합니다. Windows에서는 WSL, Docker, macOS/Linux 환경에서 `tippecanoe`를 설치한 뒤 실행하세요. 출력 파일은 `public/tiles/eupmyeondong.pmtiles`이며, 앱은 이 파일을 `MapLibre GL JS`와 `pmtiles` 프로토콜로 로드합니다.
+
+- 런타임 경계 파일: `public/tiles/eupmyeondong.pmtiles`
+- source id: `eupmyeondong-boundaries`
+- source layer: `eupmyeondong`
+- properties: `emd_code`, `emd_name`
+- 색상 규칙: 방문 전 회색, 방문 있음 초록, 통계 상위 동 주황, 선택된 동 하늘색
+
+원본 CSV와 중간 GeoJSON은 Git에 포함하지 않습니다. 배포에서 전국 경계를 표시하려면 PMTiles 파일만 포함하거나 별도 정적 스토리지에 업로드한 뒤 경로를 맞춰 주세요.

@@ -13,6 +13,7 @@ data/raw/*.csv
 data/processed/*.csv
 tmd_preprocess/*.csv
 public/data/*.geojson
+public/geo/*.geojson
 tmd_preprocess/*.geojson
 
 npm-debug.log*
