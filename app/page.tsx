@@ -1,9 +1,12 @@
 import NaverMap from "../components/NaverMap";
+import { TravelMapProvider } from "@/components/TravelMapProvider";
 
 export default function Home() {
   return (
     <main className="min-h-screen">
-      <NaverMap />
+      <TravelMapProvider>
+        <NaverMap />
+      </TravelMapProvider>
     </main>
   );
 }

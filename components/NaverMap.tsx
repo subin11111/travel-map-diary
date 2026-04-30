@@ -6,6 +6,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import AppMenu from "@/components/AppMenu";
+import MapSelector from "@/components/MapSelector";
+import { useTravelMaps } from "@/components/TravelMapProvider";
+import type { TravelMap } from "@/lib/travelMaps";
 
 type VisitStyle = {
   fillColor: string;
@@ -148,9 +151,11 @@ export default function NaverMap() {
   const visitCountByDongRef = useRef(new Map<string, number>());
   const dongNameByCodeRef = useRef(new Map<string, string>());
   const authUserRef = useRef<User | null>(null);
+  const currentMapRef = useRef<TravelMap | null>(null);
+  const canEditCurrentMapRef = useRef(false);
   const clickPulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [authUser, setAuthUser] = useState<User | null>(null);
+  const { authUser, currentMap, canEditCurrentMap, isLoadingMaps } = useTravelMaps();
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [isTimelineOpen, setIsTimelineOpen] = useState(false);
@@ -178,6 +183,14 @@ export default function NaverMap() {
   useEffect(() => {
     authUserRef.current = authUser;
   }, [authUser]);
+
+  useEffect(() => {
+    currentMapRef.current = currentMap;
+  }, [currentMap]);
+
+  useEffect(() => {
+    canEditCurrentMapRef.current = canEditCurrentMap;
+  }, [canEditCurrentMap]);
 
   const applyPolygonStyle = useCallback((dongCode: string, style: VisitStyle, zIndex: number) => {
     const polygonGroup = polygonGroupsRef.current.get(dongCode);
@@ -214,7 +227,7 @@ export default function NaverMap() {
     });
   }, [applyPolygonStyle]);
 
-  const syncUserScopedMapState = useCallback(async (currentUser: User | null) => {
+  const syncSelectedMapState = useCallback(async (mapId: string | null) => {
     setSelectedDong(null);
     setIsModalOpen(false);
     if (photoPreviewUrlRef.current) {
@@ -231,7 +244,7 @@ export default function NaverMap() {
     setDiaryContent("");
     setPhotoLink("");
 
-    if (!currentUser) {
+    if (!mapId) {
       resetUserScopedMapState();
       setDiaries([]);
       setHoveredDongName(null);
@@ -244,7 +257,7 @@ export default function NaverMap() {
     const { data: visitedPlaces, error } = await supabase
       .from("visited_places")
       .select("dong_code, dong_name, visit_count")
-      .eq("user_id", currentUser.id);
+      .eq("map_id", mapId);
 
     if (error) {
       console.error("Failed to load visited places:", error);
@@ -297,33 +310,9 @@ export default function NaverMap() {
   }, []);
 
   useEffect(() => {
-    let isMounted = true;
-
-    async function initializeAuth() {
-      const { data } = await supabase.auth.getSession();
-
-      if (!isMounted) return;
-
-      const currentUser = data.session?.user ?? null;
-      setAuthUser(currentUser);
-      void syncUserScopedMapState(currentUser);
-    }
-
-    void initializeAuth();
-
-    const {
-      data: authListener,
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      const currentUser = session?.user ?? null;
-      setAuthUser(currentUser);
-      void syncUserScopedMapState(currentUser);
-    });
-
-    return () => {
-      isMounted = false;
-      authListener.subscription.unsubscribe();
-    };
-  }, [syncUserScopedMapState]);
+    const mapId = currentMap?.id ?? null;
+    void Promise.resolve().then(() => syncSelectedMapState(mapId));
+  }, [currentMap?.id, syncSelectedMapState]);
 
 
 
@@ -331,7 +320,7 @@ export default function NaverMap() {
     let isActive = true;
 
     async function loadDiaries() {
-      if (!selectedDong || !authUser) {
+      if (!selectedDong || !currentMap) {
         setDiaries([]);
         return;
       }
@@ -344,7 +333,7 @@ export default function NaverMap() {
           .from("dong_diaries")
           .select("id, dong_code, dong_name, title, content, photo_url, created_at")
           .eq("dong_code", selectedDong.dongCode)
-          .eq("user_id", authUser.id)
+          .eq("map_id", currentMap.id)
           .order("created_at", { ascending: false });
 
         if (!isActive) return;
@@ -373,7 +362,7 @@ export default function NaverMap() {
     return () => {
       isActive = false;
     };
-  }, [selectedDong, authUser]);
+  }, [selectedDong, currentMap]);
 
   useEffect(() => {
     let cancelled = false;
@@ -462,15 +451,26 @@ export default function NaverMap() {
 
         naverApi.maps.Event.addListener(polygon, "click", () => {
           const currentUser = authUserRef.current;
+          const selectedMap = currentMapRef.current;
 
           if (!currentUser) {
             setStatusMessage("로그인 후 개인 기록을 남길 수 있습니다.");
             return;
           }
 
+          if (!selectedMap) {
+            setStatusMessage("먼저 사용할 지도를 선택하거나 새 지도를 만드세요.");
+            return;
+          }
+
           const currentVisitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
           setSelectedDong({ dongCode, dongName, visitCount: currentVisitCount });
-          setIsModalOpen(true);
+
+          if (canEditCurrentMapRef.current) {
+            setIsModalOpen(true);
+          } else {
+            setStatusMessage("이 지도는 읽기 전용입니다.");
+          }
 
           const pulseStyle: VisitStyle = {
             fillColor: "#7c3aed",
@@ -513,6 +513,16 @@ export default function NaverMap() {
       return;
     }
 
+    if (!currentMap) {
+      setStatusMessage("먼저 사용할 지도를 선택하거나 새 지도를 만드세요.");
+      return;
+    }
+
+    if (!canEditCurrentMap) {
+      setStatusMessage("이 지도는 읽기만 가능합니다.");
+      return;
+    }
+
     if (!selectedDong) {
       setStatusMessage("먼저 지도를 클릭해서 동을 선택하세요.");
       return;
@@ -532,7 +542,7 @@ export default function NaverMap() {
 
       if (photoFile) {
         const fileExtension = photoFile.name.split(".").pop() || "jpg";
-        const filePath = `${authUser.id}/${selectedDong.dongCode}/${crypto.randomUUID()}.${fileExtension}`;
+        const filePath = `${currentMap.id}/${authUser.id}/${selectedDong.dongCode}/${crypto.randomUUID()}.${fileExtension}`;
 
         const { error: uploadError } = await supabase.storage
           .from("dong-diary-photos")
@@ -555,6 +565,7 @@ export default function NaverMap() {
       const { data, error } = await supabase
         .from("dong_diaries")
         .insert({
+          map_id: currentMap.id,
           user_id: authUser.id,
           dong_code: selectedDong.dongCode,
           dong_name: selectedDong.dongName,
@@ -580,11 +591,12 @@ export default function NaverMap() {
         const { error: visitError } = await supabase.from("visited_places").upsert(
           {
             user_id: authUser.id,
+            map_id: currentMap.id,
             dong_code: selectedDong!.dongCode,
             dong_name: selectedDong!.dongName,
             visit_count: nextVisitCount,
           },
-          { onConflict: "user_id,dong_code" }
+          { onConflict: "map_id,dong_code" }
         );
 
         if (visitError) {
@@ -814,7 +826,7 @@ export default function NaverMap() {
                 Travel Map Diary
               </p>
               <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">
-                서울 동 단위 여행 일기
+                {currentMap ? currentMap.title : "서울 동 단위 여행 일기"}
               </h1>
             </div>
             <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
@@ -931,7 +943,7 @@ export default function NaverMap() {
                     {authUser.email ? authUser.email.split("@")[0] : "익명 계정"}
                   </h2>
                   <p className="mt-2 text-sm leading-6 text-slate-300">
-                    내 여행 기록을 불러왔습니다.
+                    {isLoadingMaps ? "지도 목록을 불러오는 중입니다." : "내 여행 기록을 불러왔습니다."}
                   </p>
                 </div>
                 <button
@@ -951,6 +963,8 @@ export default function NaverMap() {
               </p>
             ) : null}
           </div>
+
+          <MapSelector />
 
           <div className="rounded-[24px] border border-white/10 bg-white/5 p-4 sm:p-5">
             <button

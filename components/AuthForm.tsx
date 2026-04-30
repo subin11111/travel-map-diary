@@ -127,6 +127,18 @@ export default function AuthForm({ mode }: AuthFormProps) {
         throw lastLoginError ?? new Error("로그인에 실패했습니다.");
       }
 
+      const { data: existingUserId, error: lookupError } = await supabase.rpc("get_user_id_by_handle", {
+        target_handle: authHandle,
+      });
+
+      if (lookupError) {
+        throw lookupError;
+      }
+
+      if (existingUserId) {
+        throw new Error("already registered");
+      }
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password: authPassword,

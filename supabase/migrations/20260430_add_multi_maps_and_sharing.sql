@@ -1,0 +1,344 @@
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'map_member_role') then
+    create type public.map_member_role as enum ('owner', 'editor', 'viewer');
+  end if;
+end;
+$$;
+
+create table if not exists public.user_profiles (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  handle text not null unique,
+  auth_email text not null unique,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.maps (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  title text not null,
+  description text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.map_members (
+  id uuid primary key default gen_random_uuid(),
+  map_id uuid not null references public.maps(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role public.map_member_role not null default 'viewer',
+  created_at timestamptz not null default now(),
+  unique (map_id, user_id)
+);
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'map_members_user_profile_fk'
+  ) then
+    alter table public.map_members
+      add constraint map_members_user_profile_fk
+      foreign key (user_id) references public.user_profiles(user_id) on delete cascade;
+  end if;
+end;
+$$;
+
+alter table if exists public.visited_places
+  add column if not exists map_id uuid references public.maps(id) on delete cascade;
+
+alter table if exists public.dong_diaries
+  add column if not exists map_id uuid references public.maps(id) on delete cascade;
+
+create index if not exists maps_owner_id_idx
+  on public.maps (owner_id);
+
+create index if not exists map_members_user_id_idx
+  on public.map_members (user_id);
+
+create index if not exists map_members_map_id_idx
+  on public.map_members (map_id);
+
+create index if not exists user_profiles_handle_idx
+  on public.user_profiles (handle);
+
+create index if not exists visited_places_map_id_idx
+  on public.visited_places (map_id);
+
+create index if not exists dong_diaries_map_dong_created_at_idx
+  on public.dong_diaries (map_id, dong_code, created_at desc);
+
+create or replace function public.handle_from_auth_email(email text)
+returns text
+language sql
+immutable
+as $$
+  select split_part(lower(email), '@', 1)
+$$;
+
+create or replace function public.create_profile_for_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.user_profiles (user_id, handle, auth_email)
+  values (new.id, public.handle_from_auth_email(new.email), lower(new.email))
+  on conflict (user_id) do update
+  set handle = excluded.handle,
+      auth_email = excluded.auth_email;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created_create_profile on auth.users;
+create trigger on_auth_user_created_create_profile
+  after insert or update of email on auth.users
+  for each row execute function public.create_profile_for_auth_user();
+
+insert into public.user_profiles (user_id, handle, auth_email)
+select id, public.handle_from_auth_email(email), lower(email)
+from auth.users
+where email is not null
+on conflict (user_id) do update
+set handle = excluded.handle,
+    auth_email = excluded.auth_email;
+
+create or replace function public.is_map_member(target_map_id uuid, target_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.map_members
+    where map_id = target_map_id
+      and user_id = target_user_id
+  )
+$$;
+
+create or replace function public.is_map_owner(target_map_id uuid, target_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.map_members
+    where map_id = target_map_id
+      and user_id = target_user_id
+      and role = 'owner'
+  )
+$$;
+
+create or replace function public.can_edit_map(target_map_id uuid, target_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.map_members
+    where map_id = target_map_id
+      and user_id = target_user_id
+      and role in ('owner', 'editor')
+  )
+$$;
+
+create or replace function public.get_user_id_by_handle(target_handle text)
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select user_id
+  from public.user_profiles
+  where handle = public.handle_from_auth_email(target_handle)
+  limit 1
+$$;
+
+create or replace function public.add_owner_member_for_map()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.map_members (map_id, user_id, role)
+  values (new.id, new.owner_id, 'owner')
+  on conflict (map_id, user_id) do update
+  set role = 'owner';
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_map_created_add_owner_member on public.maps;
+create trigger on_map_created_add_owner_member
+  after insert on public.maps
+  for each row execute function public.add_owner_member_for_map();
+
+insert into public.maps (owner_id, title, description)
+select distinct source.user_id, '내 여행 지도', '기존 방문 기록에서 자동 생성된 기본 지도'
+from (
+  select user_id from public.visited_places where user_id is not null
+  union
+  select user_id from public.dong_diaries where user_id is not null
+) source
+where not exists (
+  select 1
+  from public.maps existing
+  where existing.owner_id = source.user_id
+);
+
+insert into public.map_members (map_id, user_id, role)
+select maps.id, maps.owner_id, 'owner'
+from public.maps
+on conflict (map_id, user_id) do update
+set role = 'owner';
+
+update public.visited_places
+set map_id = maps.id
+from public.maps
+where visited_places.map_id is null
+  and visited_places.user_id = maps.owner_id;
+
+update public.dong_diaries
+set map_id = maps.id
+from public.maps
+where dong_diaries.map_id is null
+  and dong_diaries.user_id = maps.owner_id;
+
+drop index if exists public.visited_places_user_dong_unique;
+create unique index if not exists visited_places_map_dong_unique
+  on public.visited_places (map_id, dong_code);
+
+alter table public.user_profiles enable row level security;
+alter table public.maps enable row level security;
+alter table public.map_members enable row level security;
+alter table public.visited_places enable row level security;
+alter table public.dong_diaries enable row level security;
+
+drop policy if exists "Authenticated users can read profiles" on public.user_profiles;
+create policy "Authenticated users can read profiles"
+  on public.user_profiles
+  for select
+  using (auth.uid() is not null);
+
+drop policy if exists "Users can update own profile" on public.user_profiles;
+create policy "Users can update own profile"
+  on public.user_profiles
+  for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Map members can read maps" on public.maps;
+create policy "Map members can read maps"
+  on public.maps
+  for select
+  using (public.is_map_member(id, auth.uid()));
+
+drop policy if exists "Users can create maps" on public.maps;
+create policy "Users can create maps"
+  on public.maps
+  for insert
+  with check (auth.uid() = owner_id);
+
+drop policy if exists "Owners can update maps" on public.maps;
+create policy "Owners can update maps"
+  on public.maps
+  for update
+  using (public.is_map_owner(id, auth.uid()))
+  with check (public.is_map_owner(id, auth.uid()));
+
+drop policy if exists "Owners can delete maps" on public.maps;
+create policy "Owners can delete maps"
+  on public.maps
+  for delete
+  using (public.is_map_owner(id, auth.uid()));
+
+drop policy if exists "Members can read own map memberships" on public.map_members;
+create policy "Members can read own map memberships"
+  on public.map_members
+  for select
+  using (user_id = auth.uid() or public.is_map_owner(map_id, auth.uid()));
+
+drop policy if exists "Owners can add map members" on public.map_members;
+create policy "Owners can add map members"
+  on public.map_members
+  for insert
+  with check (public.is_map_owner(map_id, auth.uid()));
+
+drop policy if exists "Owners can update map members" on public.map_members;
+create policy "Owners can update map members"
+  on public.map_members
+  for update
+  using (public.is_map_owner(map_id, auth.uid()) and role <> 'owner')
+  with check (public.is_map_owner(map_id, auth.uid()) and role <> 'owner');
+
+drop policy if exists "Owners can remove map members" on public.map_members;
+create policy "Owners can remove map members"
+  on public.map_members
+  for delete
+  using (public.is_map_owner(map_id, auth.uid()) and role <> 'owner');
+
+drop policy if exists "User read visited places" on public.visited_places;
+drop policy if exists "User insert visited places" on public.visited_places;
+drop policy if exists "User update visited places" on public.visited_places;
+drop policy if exists "User delete visited places" on public.visited_places;
+
+create policy "Map members read visited places"
+  on public.visited_places
+  for select
+  using (public.is_map_member(map_id, auth.uid()));
+
+create policy "Map editors insert visited places"
+  on public.visited_places
+  for insert
+  with check (public.can_edit_map(map_id, auth.uid()));
+
+create policy "Map editors update visited places"
+  on public.visited_places
+  for update
+  using (public.can_edit_map(map_id, auth.uid()))
+  with check (public.can_edit_map(map_id, auth.uid()));
+
+create policy "Map editors delete visited places"
+  on public.visited_places
+  for delete
+  using (public.can_edit_map(map_id, auth.uid()));
+
+drop policy if exists "User read dong diaries" on public.dong_diaries;
+drop policy if exists "User insert dong diaries" on public.dong_diaries;
+drop policy if exists "User update dong diaries" on public.dong_diaries;
+drop policy if exists "User delete dong diaries" on public.dong_diaries;
+
+create policy "Map members read dong diaries"
+  on public.dong_diaries
+  for select
+  using (public.is_map_member(map_id, auth.uid()));
+
+create policy "Map editors insert dong diaries"
+  on public.dong_diaries
+  for insert
+  with check (public.can_edit_map(map_id, auth.uid()));
+
+create policy "Map editors update dong diaries"
+  on public.dong_diaries
+  for update
+  using (public.can_edit_map(map_id, auth.uid()))
+  with check (public.can_edit_map(map_id, auth.uid()));
+
+create policy "Map editors delete dong diaries"
+  on public.dong_diaries
+  for delete
+  using (public.can_edit_map(map_id, auth.uid()));
