@@ -63,6 +63,31 @@ window.__setOverlayZoomOffset(-1)
 
 사용자에게 보이는 UI에서는 “지역” 또는 “읍면동” 표현을 사용합니다.
 
+## 행정구역 표기 정책
+
+전국 지도에서는 같은 읍면동명이 여러 지역에 존재할 수 있으므로, UI 표기는 가능한 경우 행정계층을 함께 보여줍니다.
+
+표기 우선순위:
+
+1. PMTiles property의 `full_name`
+2. `sido_name + sig_name + emd_name`
+3. `SIDO_CODE_MAP + SIGUNGU_CODE_MAP + emd_name`
+4. `SIDO_CODE_MAP + emd_name`
+5. `emd_name`
+
+현재 런타임은 `emd_code` 앞 2자리로 시도명을 찾고, `emd_code` 앞 5자리 또는 `sig_code`로 시군구명을 찾습니다. 일부 원본 데이터의 `객체시군구코드`는 통합시의 일반구가 아니라 상위 시 코드로 들어올 수 있으므로, 더 구체적인 `emd_code` 앞 5자리 매핑을 먼저 사용합니다. 시군구 매핑은 [lib/sigungu-code-map.json](./lib/sigungu-code-map.json)에 분리되어 있으며, PMTiles 재생성 시 `sido_name`, `sig_name`, `full_name`을 property에 포함하면 프론트 매핑 의존도를 줄일 수 있습니다.
+
+시군구 매핑 검증/재생성:
+
+```bash
+python tmd_preprocess/build_sigungu_code_map.py \
+  --emd-csv "tmd_preprocess/eupmyeondong_utf8.csv" \
+  --seed-json "lib/sigungu-code-map.json" \
+  --output "lib/sigungu-code-map.json"
+```
+
+별도 행정구역 코드 CSV가 있으면 `--admin-code-csv`로 병합할 수 있습니다.
+
 ## 환경 변수
 
 프로젝트 루트의 `.env.local`과 Vercel Project Settings > Environment Variables에 같은 이름으로 등록합니다.
@@ -163,6 +188,7 @@ GeoJSON 생성:
 python tmd_preprocess/convert_to_geojson.py \
   --input "tmd_preprocess/eupmyeondong_utf8.csv" \
   --output "public/geo/eupmyeondong.geojson" \
+  --sigungu-map "lib/sigungu-code-map.json" \
   --source-crs EPSG:4326
 ```
 
@@ -172,6 +198,14 @@ PMTiles 생성:
 npm run tiles:build
 ```
 
+PMTiles property를 최신화하려면 다음 순서로 다시 생성합니다.
+
+1. CSV 전처리
+2. `lib/sigungu-code-map.json` 검증/재생성
+3. GeoJSON 재생성
+4. PMTiles 재생성
+5. `public/tiles/eupmyeondong.pmtiles` 교체
+
 `npm run tiles:build`는 `tippecanoe` CLI가 필요합니다. Windows에서는 WSL, Docker, macOS/Linux 환경에서 `tippecanoe`를 설치한 뒤 실행하세요.
 
 생성 결과:
@@ -179,7 +213,7 @@ npm run tiles:build
 - PMTiles 파일: `public/tiles/eupmyeondong.pmtiles`
 - source id: `eupmyeondong`
 - source-layer: `eupmyeondong`
-- properties: `emd_code`, `emd_name`, `sig_code`, `object_id`
+- properties: `sido_code`, `sido_name`, `sig_code`, `derived_sig_code`, `sig_name`, `emd_code`, `emd_name`, `full_name`, `object_id`
 
 PMTiles 파일이 없으면 전국 읍면동 경계가 표시되지 않습니다.
 

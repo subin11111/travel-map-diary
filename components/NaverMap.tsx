@@ -9,6 +9,7 @@ import { supabase } from "../lib/supabase";
 import MapCreateModal from "@/components/MapCreateModal";
 import MapEditModal from "@/components/MapEditModal";
 import MapShareModal from "@/components/MapShareModal";
+import { SIDO_CODE_MAP, SIGUNGU_CODE_MAP } from "@/lib/administrativeCodes";
 import { useTravelMaps } from "@/components/TravelMapProvider";
 import type { TravelMap } from "@/lib/travelMaps";
 
@@ -24,6 +25,8 @@ type SelectedDong = {
   // Legacy DB naming: dong_code/dong_name now store nationwide emd_code/emd_name.
   dongCode: string;
   dongName: string;
+  regionLabel: string;
+  sigCode: string | null;
   visitCount: number;
 };
 
@@ -60,8 +63,16 @@ type BoundaryFeature = {
   properties: {
     emd_code?: string | number;
     emd_name?: string;
+    sig_code?: string | number;
+    sido_code?: string | number;
+    sido_name?: string;
+    sig_name?: string;
+    full_name?: string;
     EMD_CD?: string | number;
     EMD_NM?: string;
+    SIG_CD?: string | number;
+    SIG_KOR_NM?: string;
+    CTP_KOR_NM?: string;
   };
 };
 
@@ -128,6 +139,7 @@ const DEBUG_FIXED_OVERLAY_VIEW = process.env.NEXT_PUBLIC_DEBUG_FIXED_OVERLAY_VIE
 const DEBUG_OVERLAY_BACKGROUND = process.env.NEXT_PUBLIC_DEBUG_OVERLAY_BACKGROUND === "true";
 
 let isPmtilesProtocolRegistered = false;
+const missingSigunguLogSet = new Set<string>();
 
 const REGION_VISIT_COLORS = {
   default: {
@@ -211,13 +223,63 @@ function getBoundaryFeatureProperties(feature: BoundaryFeature | null | undefine
   }
 
   const dongCode = feature.properties.emd_code ?? feature.properties.EMD_CD;
-  const dongName = feature.properties.emd_name ?? feature.properties.EMD_NM;
+  const dongName = feature.properties.emd_name ?? feature.properties.EMD_NM ?? "이름 없는 지역";
+  const sigCode = feature.properties.sig_code ?? feature.properties.SIG_CD ?? null;
 
-  if (!dongCode || !dongName) {
+  if (!dongCode) {
     return null;
   }
 
-  return { dongCode: String(dongCode), dongName: String(dongName) };
+  return {
+    dongCode: String(dongCode),
+    dongName: String(dongName),
+    regionLabel: formatRegionLabel(feature.properties),
+    sigCode: sigCode ? String(sigCode) : null,
+  };
+}
+
+function formatRegionLabel(properties: BoundaryFeature["properties"]) {
+  if (properties.full_name) {
+    return String(properties.full_name);
+  }
+
+  const emdCode = properties.emd_code ?? properties.EMD_CD;
+  const emdName = properties.emd_name ?? properties.EMD_NM ?? "이름 없는 지역";
+  const sigCode = properties.sig_code ?? properties.SIG_CD;
+  const derivedSigCode = String(emdCode ?? "").slice(0, 5);
+  const sidoCodeFromProperty = properties.sido_code ? String(properties.sido_code) : null;
+  const sigName =
+    properties.sig_name ??
+    properties.SIG_KOR_NM ??
+    SIGUNGU_CODE_MAP[derivedSigCode] ??
+    (sigCode ? SIGUNGU_CODE_MAP[String(sigCode)] : null);
+  const sidoCode = sidoCodeFromProperty ?? String(emdCode ?? sigCode ?? "").slice(0, 2);
+  const sidoName = properties.sido_name ?? properties.CTP_KOR_NM ?? SIDO_CODE_MAP[sidoCode];
+
+  if (sidoName && sigName) {
+    return `${sidoName} ${sigName} ${emdName}`;
+  }
+
+  if (sidoName) {
+    if (sigCode || derivedSigCode) {
+      const missingKey = `${derivedSigCode || sigCode}:${emdName}`;
+
+      if (!missingSigunguLogSet.has(missingKey)) {
+        missingSigunguLogSet.add(missingKey);
+        console.warn("[RegionLabel] sig_code mapping missing; falling back to sido + emd.", {
+          emdCode,
+          emdName,
+          derivedSigCode,
+          sigCode,
+          sidoName,
+        });
+      }
+    }
+
+    return `${sidoName} ${emdName}`;
+  }
+
+  return String(emdName);
 }
 
 function getVisitCountBuckets(visitCounts: Map<string, number>): VisitCountBuckets {
@@ -1349,7 +1411,11 @@ export default function NaverMap() {
                 layers: [EUPMYEONDONG_FILL_LAYER_ID],
               });
 
-              console.info("[Manual hit test]", features.length, features[0]?.properties);
+              console.info("[Manual hit test]", {
+                count: features.length,
+                label: getBoundaryFeatureProperties(features[0] as BoundaryFeature)?.regionLabel,
+                properties: features[0]?.properties,
+              });
             };
 
             manualHitTestElement.addEventListener("mousemove", handleManualHitTest);
@@ -1361,7 +1427,7 @@ export default function NaverMap() {
           overlayMap.on("mousemove", EUPMYEONDONG_FILL_LAYER_ID, (event: MapLayerMouseEvent) => {
             console.info("[Boundary hover]", event.features?.[0]?.properties);
             const properties = getBoundaryFeatureProperties(event.features?.[0] as BoundaryFeature);
-            setHoverLabel(properties?.dongName ?? null);
+            setHoverLabel(properties?.regionLabel ?? null);
             overlayMap.getCanvas().style.cursor = properties ? "pointer" : "";
           });
 
@@ -1391,10 +1457,10 @@ export default function NaverMap() {
               return;
             }
 
-            const { dongCode, dongName } = properties;
+            const { dongCode, dongName, regionLabel, sigCode } = properties;
             const currentVisitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
             selectedDongCodeRef.current = dongCode;
-            setSelectedDong({ dongCode, dongName, visitCount: currentVisitCount });
+            setSelectedDong({ dongCode, dongName, regionLabel, sigCode, visitCount: currentVisitCount });
             setIsDongPanelOpen(true);
             setIsDrawerOpen(false);
             updateBoundaryLayerStyles();
@@ -1553,6 +1619,8 @@ export default function NaverMap() {
           setSelectedDong({
             dongCode: selectedDong!.dongCode,
             dongName: selectedDong!.dongName,
+            regionLabel: selectedDong!.regionLabel,
+            sigCode: selectedDong!.sigCode,
             visitCount: nextVisitCount,
           });
           restyleDong();
@@ -1757,7 +1825,7 @@ export default function NaverMap() {
     ["4~6회 방문", getVisitStyle(4).fillColor, "자주 방문한 지역입니다."],
     ["7회 이상 방문", getVisitStyle(7).fillColor, "가장 진하게 표시되는 집중 방문 지역입니다."],
     ["통계 상위 지역", getTopStatDongStyle().fillColor, visitStats.topDongName ? `${visitStats.topDongName} · ${visitStats.topVisitCount}회` : "아직 상위 지역이 없습니다."],
-    ["선택된 지역", getSelectedDongStyle().fillColor, selectedDong ? selectedDong.dongName : "아직 선택된 지역이 없습니다."],
+    ["선택된 지역", getSelectedDongStyle().fillColor, selectedDong ? selectedDong.regionLabel : "아직 선택된 지역이 없습니다."],
   ] as const;
   const regionLegendItems = [
     ["방문 전", getVisitStyle(0).fillColor, getVisitStyle(0).strokeColor],
@@ -1808,7 +1876,7 @@ export default function NaverMap() {
           </div>
           {selectedDong ? (
             <span className="hidden max-w-[180px] truncate rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-slate-200 sm:block">
-              {selectedDong.dongName}
+              {selectedDong.regionLabel}
             </span>
           ) : null}
         </div>
@@ -1818,7 +1886,7 @@ export default function NaverMap() {
         <div className="fixed left-0 top-0 z-50 flex h-full w-full items-center justify-center bg-black/50 p-4">
           <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-6">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">{selectedDong.dongName}에 지역 일기 추가</h3>
+              <h3 className="text-lg font-semibold">{selectedDong.regionLabel}에 지역 일기 추가</h3>
               <button
                 onClick={closeModal}
                 className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700"
@@ -2226,7 +2294,11 @@ export default function NaverMap() {
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-300">
                     선택된 지역
                   </p>
-                  <h2 className="mt-1 text-xl font-semibold">{selectedDong.dongName}</h2>
+                  <h2 className="mt-1 text-xl font-semibold">{selectedDong.regionLabel}</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    emd_code {selectedDong.dongCode}
+                    {selectedDong.sigCode ? ` · sig_code ${selectedDong.sigCode}` : ""}
+                  </p>
                   <p className="mt-1 text-sm text-slate-300">방문 {selectedDongVisitCount}회</p>
                 </div>
                 <button

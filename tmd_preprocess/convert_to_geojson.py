@@ -17,6 +17,28 @@ REQUIRED_COLUMNS = [
     "공간정보",
 ]
 
+SIDO_CODE_MAP = {
+    "11": "서울특별시",
+    "26": "부산광역시",
+    "27": "대구광역시",
+    "28": "인천광역시",
+    "29": "광주광역시",
+    "30": "대전광역시",
+    "31": "울산광역시",
+    "36": "세종특별자치시",
+    "41": "경기도",
+    "42": "강원특별자치도",
+    "43": "충청북도",
+    "44": "충청남도",
+    "45": "전북특별자치도",
+    "46": "전라남도",
+    "47": "경상북도",
+    "48": "경상남도",
+    "50": "제주특별자치도",
+    "51": "강원특별자치도",
+    "52": "전북특별자치도",
+}
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -25,12 +47,40 @@ def parse_args():
     parser.add_argument("--input", default="eupmyeondong_utf8.csv")
     parser.add_argument("--output", default="eupmyeondong.geojson")
     parser.add_argument(
+        "--sigungu-map",
+        default="lib/sigungu-code-map.json",
+        help="Optional JSON map from sig_code to sigungu name.",
+    )
+    parser.add_argument(
         "--source-crs",
         default="EPSG:4326",
         choices=["EPSG:5179", "EPSG:5181", "EPSG:5186", "EPSG:5187", "EPSG:4326"],
         help="Source CRS of the WKB geometry. The current 20230915 file is already EPSG:4326.",
     )
     return parser.parse_args()
+
+
+def load_sigungu_map(path_value):
+    path = Path(path_value)
+
+    if not path.exists():
+        print(f"sigungu map not found, continuing without sig_name: {path}")
+        return {}
+
+    with path.open("r", encoding="utf-8") as file:
+        data = json.load(file)
+
+    return {str(key): str(value) for key, value in data.items()}
+
+
+def format_full_name(sido_name, sig_name, emd_name):
+    if sido_name and sig_name:
+        return f"{sido_name} {sig_name} {emd_name}"
+
+    if sido_name:
+        return f"{sido_name} {emd_name}"
+
+    return emd_name
 
 
 def update_bounds(bounds, geom_bounds):
@@ -81,6 +131,7 @@ def main():
     df["읍면동명"] = df["읍면동명"].astype(str).str.strip()
     df = df.dropna(subset=["공간정보"])
     df = df[df["공간정보"].astype(str).str.strip() != ""]
+    sigungu_map = load_sigungu_map(args.sigungu_map)
 
     transformer = None
     if args.source_crs != "EPSG:4326":
@@ -100,6 +151,13 @@ def main():
         try:
             geom, raw_bounds = convert_geom(row["공간정보"], transformer)
             geometry = geom.__geo_interface__
+            emd_code = str(row["읍면동코드"])
+            emd_name = row["읍면동명"]
+            sig_code = str(row["객체시군구코드"])
+            derived_sig_code = emd_code[:5]
+            sido_code = emd_code[:2]
+            sido_name = SIDO_CODE_MAP.get(sido_code)
+            sig_name = sigungu_map.get(derived_sig_code) or sigungu_map.get(sig_code)
 
             raw_total_bounds = update_bounds(raw_total_bounds, raw_bounds)
             converted_total_bounds = update_bounds(converted_total_bounds, geom.bounds)
@@ -107,9 +165,14 @@ def main():
             feature = {
                 "type": "Feature",
                 "properties": {
-                    "emd_code": str(row["읍면동코드"]),
-                    "emd_name": row["읍면동명"],
-                    "sig_code": str(row["객체시군구코드"]),
+                    "sido_code": sido_code,
+                    "sido_name": sido_name,
+                    "sig_code": sig_code,
+                    "derived_sig_code": derived_sig_code,
+                    "sig_name": sig_name,
+                    "emd_code": emd_code,
+                    "emd_name": emd_name,
+                    "full_name": format_full_name(sido_name, sig_name, emd_name),
                     "object_id": int(row["오브젝트아이디"]),
                 },
                 "geometry": geometry,
