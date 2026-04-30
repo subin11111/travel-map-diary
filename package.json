@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:link": "npx supabase link --project-ref kpibshapazejhkgblrmb",
+    "db:push": "npx supabase db push",
+    "db:status": "npx supabase migration list"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",
