@@ -102,6 +102,7 @@ NEXT_PUBLIC_MAPLIBRE_ZOOM_OFFSET=-1
 NEXT_PUBLIC_DEBUG_BOUNDARY_STYLE=false
 NEXT_PUBLIC_DEBUG_OVERLAY_BACKGROUND=false
 NEXT_PUBLIC_DEBUG_FIXED_OVERLAY_VIEW=false
+NEXT_PUBLIC_DEBUG_REGION_LABEL=false
 ```
 
 - `NEXT_PUBLIC_SUPABASE_URL`: Supabase Project URL
@@ -111,6 +112,7 @@ NEXT_PUBLIC_DEBUG_FIXED_OVERLAY_VIEW=false
 - `NEXT_PUBLIC_DEBUG_BOUNDARY_STYLE`: `true`일 때 PMTiles 경계를 강한 빨간색/검정색으로 표시합니다.
 - `NEXT_PUBLIC_DEBUG_OVERLAY_BACKGROUND`: `true`일 때 overlay 영역을 옅은 빨간 배경으로 표시합니다.
 - `NEXT_PUBLIC_DEBUG_FIXED_OVERLAY_VIEW`: `true`일 때 MapLibre overlay를 고정 테스트 뷰로 표시합니다.
+- `NEXT_PUBLIC_DEBUG_REGION_LABEL`: `true`일 때 Safari 한글 깨짐 확인용으로 지역 raw properties와 최종 표시 라벨을 최대 10개만 출력합니다.
 
 보안 주의:
 

@@ -146,6 +146,7 @@ const DEBUG_BOUNDARY_STYLE = process.env.NEXT_PUBLIC_DEBUG_BOUNDARY_STYLE === "t
 const DEBUG_FIXED_OVERLAY_VIEW = process.env.NEXT_PUBLIC_DEBUG_FIXED_OVERLAY_VIEW === "true";
 const DEBUG_OVERLAY_BACKGROUND = process.env.NEXT_PUBLIC_DEBUG_OVERLAY_BACKGROUND === "true";
 const DEBUG_MAP_SYNC = process.env.NEXT_PUBLIC_DEBUG_MAP_SYNC === "true";
+const DEBUG_REGION_LABEL = process.env.NEXT_PUBLIC_DEBUG_REGION_LABEL === "true";
 const OVERLAY_MOVING_OPACITY = "0.22";
 const OVERLAY_IDLE_OPACITY = "1";
 
@@ -312,17 +313,25 @@ function isLikelyMojibake(value: unknown): boolean {
     return true;
   }
 
-  const mojibakePattern = /[\u6FE1\u71EE\uBE1A\uD76C\u8E42\u6028\u7B4C\u75AB\u56A5\u63F6\u96C5\uF9CF\uF9CE\u8ADB\u91AB\u7652]/g;
+  if (text.includes("?")) {
+    return true;
+  }
+
+  if (/[ÃÂãìíîïëêðŸ]/.test(text)) {
+    return true;
+  }
+
+  const mojibakePattern = /[\u6FE1\u71EE\uBE1A\uD76C\u8E42\u6028\u7B4C\u75AB\u56A5\u63F6\u96C5\uF9CF\uF9CE\u8ADB\u91AB\u7652\uF9CE\uF9DE\uF9E2\uF9EC\uF9F0]/g;
   const mojibakeHits = text.match(mojibakePattern)?.length ?? 0;
 
-  if (mojibakeHits >= 2) {
+  if (mojibakeHits >= 1) {
     return true;
   }
 
   const hangulCount = (text.match(/[\uAC00-\uD7A3]/g) ?? []).length;
   const suspiciousCjkCount = (text.match(/[\u4e00-\u9fff]/g) ?? []).length;
 
-  return suspiciousCjkCount >= 3 && suspiciousCjkCount > hangulCount;
+  return suspiciousCjkCount >= 1 && suspiciousCjkCount >= hangulCount;
 }
 
 function warnMojibakeOnce(fieldName: string, value: unknown) {
@@ -341,7 +350,7 @@ function getCleanLabelPart(value: unknown, fieldName: string): string | null {
     return null;
   }
 
-  const text = String(value).trim();
+  const text = String(value).normalize("NFC").trim();
 
   if (!text) {
     return null;
@@ -356,6 +365,10 @@ function getCleanLabelPart(value: unknown, fieldName: string): string | null {
 }
 
 function logBoundaryPropertySample(properties: BoundaryFeature["properties"], label: string) {
+  if (!DEBUG_REGION_LABEL) {
+    return;
+  }
+
   if (boundaryPropertySampleLogCount >= 10) {
     return;
   }
@@ -1725,12 +1738,12 @@ export default function NaverMap() {
               const selectedMap = currentMapRef.current;
 
               if (!currentUser) {
-                setStatusMessage("濡쒓렇?명븯硫?媛쒖씤 湲곕줉???④만 ???덉뒿?덈떎.");
+                setStatusMessage("로그인하면 개인 기록을 남길 수 있습니다.");
                 return;
               }
 
               if (!selectedMap) {
-                setStatusMessage("癒쇱? ?ъ슜??吏?꾨? ?좏깮?섍굅????吏?꾨? 留뚮뱾??二쇱꽭??");
+                setStatusMessage("먼저 사용할 지도를 선택하거나 새 지도를 만들어 주세요.");
                 return;
               }
 
@@ -1765,7 +1778,7 @@ export default function NaverMap() {
               setHoverLabel(properties?.regionLabel ?? null);
               manualHitTestElement.style.cursor = properties ? "pointer" : "";
 
-              if (now - lastManualHitLogTime >= 500) {
+              if (DEBUG_REGION_LABEL && now - lastManualHitLogTime >= 500) {
                 lastManualHitLogTime = now;
                 console.info("[Manual hit test]", {
                   count: feature ? 1 : 0,
@@ -1803,7 +1816,9 @@ export default function NaverMap() {
               const point = getPointFromMouseEvent(event);
               const feature = point ? getFeatureAtPoint(point) : null;
 
-              console.info("[Boundary click]", feature?.properties);
+              if (DEBUG_REGION_LABEL) {
+                console.info("[Boundary click]", feature?.properties);
+              }
               selectBoundaryFeature(feature);
             };
 
@@ -1849,7 +1864,9 @@ export default function NaverMap() {
           });
 
           overlayMap.on("click", EUPMYEONDONG_FILL_LAYER_ID, (event: MapLayerMouseEvent) => {
-            console.info("[Boundary click]", event.features?.[0]?.properties);
+            if (DEBUG_REGION_LABEL) {
+              console.info("[Boundary click]", event.features?.[0]?.properties);
+            }
             const properties = getBoundaryFeatureProperties(event.features?.[0] as BoundaryFeature);
 
             if (!properties) {
