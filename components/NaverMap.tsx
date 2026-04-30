@@ -2921,13 +2921,13 @@ export default function NaverMap() {
 
   return (
     <main className="min-h-dvh overflow-hidden bg-slate-950 text-slate-900">
-      <header className="fixed inset-x-0 top-0 z-[60] border-b border-white/10 bg-slate-950/90 px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top))] text-white shadow-lg shadow-slate-950/20 backdrop-blur">
+      <header className="fixed inset-x-0 top-0 z-[60] border-b border-slate-200/80 bg-white/95 px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top))] text-slate-950 shadow-sm shadow-slate-200/70 backdrop-blur">
         <div className="mx-auto flex h-12 max-w-[1600px] items-center gap-3">
           <button
             type="button"
             data-testid="main-menu-button"
             onClick={() => setIsDrawerOpen(true)}
-            className="flex h-10 w-10 flex-none items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white transition hover:bg-white/15"
+            className="flex h-10 w-10 flex-none items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-800 shadow-sm transition hover:border-sky-200 hover:bg-sky-50"
             aria-label="메뉴 열기"
           >
             <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current stroke-[2]">
@@ -2940,10 +2940,10 @@ export default function NaverMap() {
             width={40}
             height={40}
             priority
-            className="h-9 w-9 flex-none object-contain sm:h-10 sm:w-10"
+            className="h-8 w-auto flex-none object-contain sm:h-9"
           />
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-300">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-700">
               Life Map Diary
             </p>
             <h1 className="truncate text-sm font-semibold sm:text-base">
@@ -2952,7 +2952,7 @@ export default function NaverMap() {
             </h1>
           </div>
           {selectedDong ? (
-            <span className="hidden max-w-[180px] truncate rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-slate-200 sm:block">
+            <span className="hidden max-w-[180px] truncate rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 sm:block">
               {selectedDong.regionLabel}
             </span>
           ) : null}
@@ -3051,7 +3051,7 @@ export default function NaverMap() {
                     alt="Life Map Diary 로고"
                     width={44}
                     height={44}
-                    className="h-10 w-10 flex-none object-contain sm:h-11 sm:w-11"
+                    className="h-9 w-auto flex-none object-contain sm:h-10"
                   />
                   <div className="min-w-0">
                     <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
@@ -3622,7 +3622,7 @@ export default function NaverMap() {
                 width={48}
                 height={48}
                 priority
-                className="h-11 w-11 flex-none object-contain xl:h-12 xl:w-12"
+                className="h-10 w-auto flex-none object-contain xl:h-11"
               />
               <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-sky-700 sm:text-xs sm:tracking-[0.28em]">

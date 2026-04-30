@@ -224,7 +224,7 @@ export default function AuthForm({ mode }: AuthFormProps) {
                   width={48}
                   height={48}
                   priority
-                  className="h-11 w-11 flex-none object-contain sm:h-12 sm:w-12"
+                  className="h-10 w-auto flex-none object-contain sm:h-11"
                 />
                 <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-sky-300">
                   Life Map Diary

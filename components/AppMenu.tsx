@@ -107,7 +107,7 @@ export default function AppMenu({ compact = false }: AppMenuProps) {
               alt="Life Map Diary 로고"
               width={40}
               height={40}
-              className="mb-3 h-10 w-10 object-contain"
+              className="mb-3 h-9 w-auto object-contain"
             />
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">메뉴</p>
             <h2 className="mt-2 text-lg font-semibold tracking-tight text-slate-950">
