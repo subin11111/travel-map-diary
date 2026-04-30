@@ -143,12 +143,12 @@ export default function MapShareModal({ isOpen, map, onClose }: MapShareModalPro
             value={handle}
             onChange={(event) => setHandle(event.target.value)}
             placeholder="공유할 아이디"
-            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-sky-400"
+            className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-500 focus:border-sky-500"
           />
           <select
             value={role}
             onChange={(event) => setRole(event.target.value as ShareRole)}
-            className="rounded-2xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-sky-400"
+            className="rounded-2xl border border-slate-300 bg-white px-3 py-3 text-sm text-slate-950 outline-none focus:border-sky-500"
           >
             <option value="viewer">읽기</option>
             <option value="editor">편집</option>
@@ -163,7 +163,7 @@ export default function MapShareModal({ isOpen, map, onClose }: MapShareModalPro
         </form>
 
         {message ? (
-          <p className="mt-3 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-700">
+          <p className="mt-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-slate-800">
             {message}
           </p>
         ) : null}
@@ -173,11 +173,11 @@ export default function MapShareModal({ isOpen, map, onClose }: MapShareModalPro
             공유된 사용자
           </p>
           {isLoading ? (
-            <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
               불러오는 중입니다.
             </div>
           ) : members.length === 0 ? (
-            <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
               아직 공유된 사용자가 없습니다.
             </div>
           ) : (

@@ -26,6 +26,61 @@ create table if not exists public.map_members (
 alter table if exists public.maps
   add column if not exists updated_at timestamptz not null default now();
 
+alter table public.maps
+  alter column title type text,
+  alter column description type text;
+
+alter table if exists public.dong_diaries
+  alter column title type text,
+  alter column content type text,
+  alter column photo_url type text;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'diary_entries'
+      and column_name = 'title'
+  ) then
+    alter table public.diary_entries alter column title type text;
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'diary_entries'
+      and column_name = 'content'
+  ) then
+    alter table public.diary_entries alter column content type text;
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'images'
+      and column_name in ('caption', 'description')
+  ) then
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'images' and column_name = 'caption'
+    ) then
+      alter table public.images alter column caption type text;
+    end if;
+
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'images' and column_name = 'description'
+    ) then
+      alter table public.images alter column description type text;
+    end if;
+  end if;
+end;
+$$;
+
 do $$
 begin
   if exists (
@@ -292,6 +347,76 @@ drop trigger if exists on_map_created_add_owner_member on public.maps;
 create trigger on_map_created_add_owner_member
   after insert on public.maps
   for each row execute function public.add_owner_member_for_map();
+
+create or replace function public.create_travel_map(
+  p_title text,
+  p_description text default null
+)
+returns table (
+  id uuid,
+  owner_id uuid,
+  title text,
+  description text,
+  created_at timestamptz,
+  role text
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_user_id uuid;
+  created_map public.maps%rowtype;
+begin
+  current_user_id := auth.uid();
+
+  if current_user_id is null then
+    raise exception '로그인이 필요합니다.';
+  end if;
+
+  if p_title is null or btrim(p_title) = '' then
+    raise exception '지도 이름을 입력하세요.';
+  end if;
+
+  insert into public.user_profiles (user_id, handle, auth_email)
+  select
+    auth_users.id,
+    case
+      when exists (
+        select 1
+        from public.user_profiles existing
+        where existing.handle = public.handle_from_auth_email(auth_users.email)
+          and existing.user_id <> auth_users.id
+      )
+      then public.handle_from_auth_email(auth_users.email) || '-' || left(auth_users.id::text, 8)
+      else public.handle_from_auth_email(auth_users.email)
+    end,
+    lower(auth_users.email)
+  from auth.users auth_users
+  where auth_users.id = current_user_id
+    and auth_users.email is not null
+  on conflict (user_id) do update
+  set auth_email = excluded.auth_email;
+
+  insert into public.maps (owner_id, title, description)
+  values (current_user_id, p_title, nullif(p_description, ''))
+  returning * into created_map;
+
+  insert into public.map_members (map_id, user_id, role)
+  values (created_map.id, current_user_id, 'owner')
+  on conflict (map_id, user_id) do update
+  set role = 'owner';
+
+  return query
+  select
+    created_map.id,
+    created_map.owner_id,
+    created_map.title,
+    created_map.description,
+    created_map.created_at,
+    'owner'::text;
+end;
+$$;
 
 insert into public.maps (owner_id, title, description)
 select distinct source.user_id, '내 여행 지도', '기존 방문 기록에서 자동 생성된 기본 지도'

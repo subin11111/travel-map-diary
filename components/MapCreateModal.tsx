@@ -30,7 +30,7 @@ export default function MapCreateModal({ isOpen, onClose, onCreate }: MapCreateM
     setMessage(null);
 
     try {
-      await onCreate(title.trim(), description.trim());
+      await onCreate(title, description);
       setTitle("");
       setDescription("");
       onClose();
@@ -65,18 +65,18 @@ export default function MapCreateModal({ isOpen, onClose, onCreate }: MapCreateM
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="지도 이름"
-            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-sky-400"
+            className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-500 focus:border-sky-500"
           />
           <textarea
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             placeholder="설명"
             rows={3}
-            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-sky-400"
+            className="w-full resize-none rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-500 focus:border-sky-500"
           />
 
           {message ? (
-            <p className="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-700">
+            <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">
               {message}
             </p>
           ) : null}

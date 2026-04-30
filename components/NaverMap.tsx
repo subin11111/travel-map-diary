@@ -768,20 +768,20 @@ export default function NaverMap() {
                 value={diaryTitle}
                 onChange={(e) => setDiaryTitle(e.target.value)}
                 placeholder="제목"
-                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-500 focus:border-sky-500"
               />
               <textarea
                 value={diaryContent}
                 onChange={(e) => setDiaryContent(e.target.value)}
                 placeholder="이 동에서 어떤 하루를 보냈는지 적어보세요."
                 rows={6}
-                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-500 focus:border-sky-500"
               />
               <input
                 value={photoLink}
                 onChange={(event) => setPhotoLink(event.target.value)}
                 placeholder="사진 URL을 직접 붙여 넣을 수도 있습니다."
-                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-500 focus:border-sky-500"
               />
               <input
                 key={photoInputKey}
@@ -789,7 +789,7 @@ export default function NaverMap() {
                 type="file"
                 accept="image/*"
                 onChange={handlePhotoChange}
-                className="block w-full cursor-pointer rounded-2xl border border-dashed border-slate-200 px-4 py-3 text-sm"
+                className="block w-full cursor-pointer rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-800"
               />
 
               {photoPreviewUrl ? (

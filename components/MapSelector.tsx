@@ -52,7 +52,7 @@ export default function MapSelector() {
         </div>
 
         {mapError ? (
-          <p className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200">
+          <p className="mt-3 rounded-2xl border border-sky-300/30 bg-sky-950/40 px-4 py-3 text-sm font-medium text-slate-100">
             {mapError}
           </p>
         ) : null}
@@ -85,7 +85,7 @@ export default function MapSelector() {
               ) : null}
             </select>
           ) : (
-            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-300">
+            <div className="rounded-2xl border border-white/15 bg-black/25 px-4 py-3 text-sm text-slate-200">
               새 지도를 만들면 방문 기록과 일기를 저장할 수 있습니다.
             </div>
           )}
@@ -110,7 +110,7 @@ export default function MapSelector() {
           </div>
 
           {!canEditCurrentMap && currentMap ? (
-            <p className="text-xs leading-5 text-slate-400">
+            <p className="text-xs leading-5 text-slate-300">
               이 지도에서는 기록을 볼 수만 있습니다.
             </p>
           ) : null}

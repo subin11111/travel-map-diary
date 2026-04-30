@@ -101,7 +101,7 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
 
     if (nextMaps.length === 0) {
       try {
-        const defaultMap = await createTravelMap(user.id, DEFAULT_MAP_TITLE);
+        const defaultMap = await createTravelMap(DEFAULT_MAP_TITLE);
         nextMaps = [defaultMap];
       } catch (error) {
         if (isMissingMapSharingSchemaError(error)) {
@@ -188,7 +188,7 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
       let nextMap: TravelMap;
 
       try {
-        nextMap = await createTravelMap(authUser.id, title, description);
+        nextMap = await createTravelMap(title, description);
       } catch (error) {
         if (isMissingMapSharingSchemaError(error)) {
           setMapError(MAP_SCHEMA_MISSING_MESSAGE);

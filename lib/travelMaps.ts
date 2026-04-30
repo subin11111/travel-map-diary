@@ -45,11 +45,18 @@ type MapMemberRow = {
 };
 
 type MapRow = {
-    id: string;
-    owner_id: string;
-    title: string;
-    description: string | null;
-    created_at: string;
+  id: string;
+  owner_id: string;
+  title: string;
+  description: string | null;
+  created_at: string;
+};
+
+type SupabaseErrorLike = {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
 };
 
 type SharedMemberRow = {
@@ -59,6 +66,10 @@ type SharedMemberRow = {
   role: MapRole;
   created_at: string;
   user_profiles: { handle: string } | { handle: string }[] | null;
+};
+
+type CreateTravelMapRow = MapRow & {
+  role: MapRole;
 };
 
 export const MAP_SCHEMA_MISSING_MESSAGE =
@@ -87,6 +98,21 @@ export function canEditMap(role: MapRole | null | undefined) {
   return role === "owner" || role === "editor";
 }
 
+export function logSupabaseError(context: string, error: unknown) {
+  if (error && typeof error === "object") {
+    const supabaseError = error as SupabaseErrorLike;
+    console.error(context, {
+      code: supabaseError.code ?? null,
+      message: supabaseError.message ?? null,
+      details: supabaseError.details ?? null,
+      hint: supabaseError.hint ?? null,
+    });
+    return;
+  }
+
+  console.error(context, error);
+}
+
 export async function fetchTravelMaps() {
   const { data, error } = await supabase
     .from("map_members")
@@ -109,23 +135,23 @@ export async function fetchTravelMaps() {
     }));
 }
 
-export async function createTravelMap(ownerId: string, title: string, description?: string) {
+export async function createTravelMap(title: string, description?: string) {
   const { data, error } = await supabase
-    .from("maps")
-    .insert({
-      owner_id: ownerId,
-      title,
-      description: description?.trim() || null,
+    .rpc("create_travel_map", {
+      p_title: title,
+      p_description: description?.trim() ? description : null,
     })
-    .select("id, owner_id, title, description, created_at")
     .single();
 
   if (error) {
+    logSupabaseError("Failed to create travel map:", error);
     throw error;
   }
 
+  const createdMap = data as CreateTravelMapRow;
+
   return {
-    ...data,
+    ...createdMap,
     role: "owner" as const,
   };
 }
