@@ -34,8 +34,7 @@ export default function MapCreateModal({ isOpen, onClose, onCreate }: MapCreateM
       setTitle("");
       setDescription("");
       onClose();
-    } catch (error) {
-      console.error("Failed to create map:", error);
+    } catch {
       setMessage("지도를 만들지 못했습니다.");
     } finally {
       setIsSaving(false);

@@ -32,6 +32,33 @@ type TravelMapContextValue = {
 const TravelMapContext = createContext<TravelMapContextValue | null>(null);
 
 const SELECTED_MAP_STORAGE_KEY = "travel-map-diary:selected-map-id";
+const DEFAULT_MAP_TITLE = "나의 여행 지도";
+
+function formatUnknownError(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (error && typeof error === "object") {
+    const details = Object.getOwnPropertyNames(error).reduce<Record<string, unknown>>(
+      (result, key) => ({
+        ...result,
+        [key]: (error as Record<string, unknown>)[key],
+      }),
+      {}
+    );
+
+    if (Object.keys(details).length > 0) {
+      return JSON.stringify(details);
+    }
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
 
 export function TravelMapProvider({ children }: { children: React.ReactNode }) {
   const [authUser, setAuthUser] = useState<User | null>(null);
@@ -44,6 +71,7 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
     if (!user) {
       setMaps([]);
       setCurrentMapId(null);
+      setMapError(null);
       setIsLoadingMaps(false);
       return;
     }
@@ -51,35 +79,46 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
     setIsLoadingMaps(true);
     setMapError(null);
 
+    let nextMaps: TravelMap[] = [];
+
     try {
-      let nextMaps = await fetchTravelMaps();
-
-      if (nextMaps.length === 0) {
-        const defaultMap = await createTravelMap(user.id, "내 여행 지도");
-        nextMaps = [defaultMap];
-      }
-
-      setMaps(nextMaps);
-
-      const savedMapId =
-        typeof window === "undefined"
-          ? null
-          : window.localStorage.getItem(SELECTED_MAP_STORAGE_KEY);
-      const nextCurrentMap =
-        nextMaps.find((map) => map.id === savedMapId) ??
-        nextMaps.find((map) => map.role === "owner") ??
-        nextMaps[0] ??
-        null;
-
-      setCurrentMapId(nextCurrentMap?.id ?? null);
+      nextMaps = await fetchTravelMaps();
     } catch (error) {
-      console.error("Failed to load maps:", error);
+      console.error("Failed to load maps:", formatUnknownError(error));
       setMapError("지도 목록을 불러오지 못했습니다.");
       setMaps([]);
       setCurrentMapId(null);
-    } finally {
       setIsLoadingMaps(false);
+      return;
     }
+
+    if (nextMaps.length === 0) {
+      try {
+        const defaultMap = await createTravelMap(user.id, DEFAULT_MAP_TITLE);
+        nextMaps = [defaultMap];
+      } catch {
+        setMapError("아직 생성된 지도가 없습니다. 새 지도를 만들어 주세요.");
+        setMaps([]);
+        setCurrentMapId(null);
+        setIsLoadingMaps(false);
+        return;
+      }
+    }
+
+    setMaps(nextMaps);
+
+    const savedMapId =
+      typeof window === "undefined"
+        ? null
+        : window.localStorage.getItem(SELECTED_MAP_STORAGE_KEY);
+    const nextCurrentMap =
+      nextMaps.find((map) => map.id === savedMapId) ??
+      nextMaps.find((map) => map.role === "owner") ??
+      nextMaps[0] ??
+      null;
+
+    setCurrentMapId(nextCurrentMap?.id ?? null);
+    setIsLoadingMaps(false);
   }, []);
 
   useEffect(() => {
@@ -136,6 +175,7 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
 
       const nextMap = await createTravelMap(authUser.id, title, description);
       setMaps((current) => [...current, nextMap]);
+      setMapError(null);
       selectMap(nextMap.id);
       return nextMap;
     },

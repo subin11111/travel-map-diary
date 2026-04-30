@@ -35,7 +35,7 @@ export default function MapSelector() {
               지도 선택
             </p>
             <h2 className="mt-2 text-xl font-semibold tracking-tight text-white sm:text-2xl">
-              {currentMap?.title ?? "지도 불러오는 중"}
+              {currentMap?.title ?? (isLoadingMaps ? "지도 불러오는 중" : "지도가 없습니다")}
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-300">
               {currentMap
@@ -44,7 +44,9 @@ export default function MapSelector() {
                   : currentMap.role === "editor"
                     ? "편집 권한이 있는 공유 지도입니다."
                     : "읽기 권한이 있는 공유 지도입니다."
-                : "사용할 지도를 선택하세요."}
+                : isLoadingMaps
+                  ? "사용할 지도를 확인하고 있습니다."
+                  : "아직 생성된 지도가 없습니다. 새 지도를 만들어 주세요."}
             </p>
           </div>
         </div>
@@ -56,31 +58,37 @@ export default function MapSelector() {
         ) : null}
 
         <div className="mt-4 space-y-3">
-          <select
-            value={currentMap?.id ?? ""}
-            onChange={(event) => selectMap(event.target.value)}
-            disabled={isLoadingMaps || maps.length === 0}
-            className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none focus:border-sky-300 disabled:cursor-not-allowed disabled:text-slate-400"
-          >
-            {ownedMaps.length > 0 ? (
-              <optgroup label="내 지도">
-                {ownedMaps.map((map) => (
-                  <option key={map.id} value={map.id}>
-                    {map.title}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null}
-            {sharedMaps.length > 0 ? (
-              <optgroup label="공유 받은 지도">
-                {sharedMaps.map((map) => (
-                  <option key={map.id} value={map.id}>
-                    {map.title}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null}
-          </select>
+          {maps.length > 0 ? (
+            <select
+              value={currentMap?.id ?? ""}
+              onChange={(event) => selectMap(event.target.value)}
+              disabled={isLoadingMaps}
+              className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none focus:border-sky-300 disabled:cursor-not-allowed disabled:text-slate-400"
+            >
+              {ownedMaps.length > 0 ? (
+                <optgroup label="내 지도">
+                  {ownedMaps.map((map) => (
+                    <option key={map.id} value={map.id}>
+                      {map.title}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+              {sharedMaps.length > 0 ? (
+                <optgroup label="공유 받은 지도">
+                  {sharedMaps.map((map) => (
+                    <option key={map.id} value={map.id}>
+                      {map.title}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+            </select>
+          ) : (
+            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-300">
+              새 지도를 만들면 방문 기록과 일기를 저장할 수 있습니다.
+            </div>
+          )}
 
           <div className="flex flex-wrap gap-2">
             <button
