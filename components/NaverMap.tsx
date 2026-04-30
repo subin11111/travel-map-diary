@@ -143,6 +143,8 @@ const DEBUG_OVERLAY_BACKGROUND = process.env.NEXT_PUBLIC_DEBUG_OVERLAY_BACKGROUN
 
 let isPmtilesProtocolRegistered = false;
 const missingSigunguLogSet = new Set<string>();
+const mojibakeLogSet = new Set<string>();
+let boundaryPropertySampleLogCount = 0;
 
 const REGION_VISIT_COLORS = {
   default: {
@@ -226,6 +228,7 @@ function getBoundaryFeatureProperties(feature: BoundaryFeature | null | undefine
   }
 
   const dongCode = feature.properties.emd_code ?? feature.properties.EMD_CD;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const dongName = feature.properties.emd_name ?? feature.properties.EMD_NM ?? "이름 없는 지역";
   const sigCode = feature.properties.sig_code ?? feature.properties.SIG_CD ?? null;
 
@@ -235,12 +238,13 @@ function getBoundaryFeatureProperties(feature: BoundaryFeature | null | undefine
 
   return {
     dongCode: String(dongCode),
-    dongName: String(dongName),
-    regionLabel: formatRegionLabel(feature.properties),
+    dongName: getSafeRegionName(feature.properties),
+    regionLabel: formatSafeRegionLabel(feature.properties),
     sigCode: sigCode ? String(sigCode) : null,
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function formatRegionLabel(properties: BoundaryFeature["properties"]) {
   if (properties.full_name) {
     return String(properties.full_name);
@@ -283,6 +287,139 @@ function formatRegionLabel(properties: BoundaryFeature["properties"]) {
   }
 
   return String(emdName);
+}
+
+function isLikelyMojibake(value: unknown): boolean {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const text = value.trim();
+
+  if (!text) {
+    return false;
+  }
+
+  if (text.includes("\uFFFD")) {
+    return true;
+  }
+
+  const mojibakePattern = /[\u6FE1\u71EE\uBE1A\uD76C\u8E42\u6028\u7B4C\u75AB\u56A5\u63F6\u96C5\uF9CF\uF9CE\u8ADB\u91AB\u7652]/g;
+  const mojibakeHits = text.match(mojibakePattern)?.length ?? 0;
+
+  if (mojibakeHits >= 2) {
+    return true;
+  }
+
+  const hangulCount = (text.match(/[\uAC00-\uD7A3]/g) ?? []).length;
+  const suspiciousCjkCount = (text.match(/[\u4e00-\u9fff]/g) ?? []).length;
+
+  return suspiciousCjkCount >= 3 && suspiciousCjkCount > hangulCount;
+}
+
+function warnMojibakeOnce(fieldName: string, value: unknown) {
+  const key = `${fieldName}:${String(value).slice(0, 80)}`;
+
+  if (mojibakeLogSet.has(key)) {
+    return;
+  }
+
+  mojibakeLogSet.add(key);
+  console.warn("[RegionLabel] rejected mojibake property.", { fieldName, value });
+}
+
+function getCleanLabelPart(value: unknown, fieldName: string): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const text = String(value).trim();
+
+  if (!text) {
+    return null;
+  }
+
+  if (isLikelyMojibake(text)) {
+    warnMojibakeOnce(fieldName, text);
+    return null;
+  }
+
+  return text;
+}
+
+function logBoundaryPropertySample(properties: BoundaryFeature["properties"], label: string) {
+  if (boundaryPropertySampleLogCount >= 10) {
+    return;
+  }
+
+  boundaryPropertySampleLogCount += 1;
+  console.info("[RegionLabel] property sample", {
+    raw: properties,
+    label,
+    rejected: {
+      fullName: isLikelyMojibake(properties.full_name),
+      sidoName: isLikelyMojibake(properties.sido_name ?? properties.CTP_KOR_NM),
+      sigName: isLikelyMojibake(properties.sig_name ?? properties.SIG_KOR_NM),
+      emdName: isLikelyMojibake(properties.emd_name ?? properties.EMD_NM),
+    },
+  });
+}
+
+function getSafeRegionName(properties: BoundaryFeature["properties"]) {
+  return getCleanLabelPart(properties.emd_name ?? properties.EMD_NM, "emd_name") ?? "\uC774\uB984 \uC5C6\uB294 \uC9C0\uC5ED";
+}
+
+function formatSafeRegionLabel(properties: BoundaryFeature["properties"]) {
+  const fullName = getCleanLabelPart(properties.full_name, "full_name");
+
+  if (fullName) {
+    logBoundaryPropertySample(properties, fullName);
+    return fullName;
+  }
+
+  const emdCode = properties.emd_code ?? properties.EMD_CD;
+  const sigCode = properties.sig_code ?? properties.SIG_CD;
+  const emdName = getSafeRegionName(properties);
+  const derivedSigCode = String(emdCode ?? "").slice(0, 5);
+  const sidoCodeFromProperty = properties.sido_code ? String(properties.sido_code) : null;
+  const sigName =
+    getCleanLabelPart(properties.sig_name ?? properties.SIG_KOR_NM, "sig_name") ??
+    SIGUNGU_CODE_MAP[derivedSigCode] ??
+    (sigCode ? SIGUNGU_CODE_MAP[String(sigCode)] : null);
+  const sidoCode = sidoCodeFromProperty ?? String(emdCode ?? sigCode ?? "").slice(0, 2);
+  const sidoName =
+    getCleanLabelPart(properties.sido_name ?? properties.CTP_KOR_NM, "sido_name") ??
+    SIDO_CODE_MAP[sidoCode];
+
+  if (sidoName && sigName) {
+    const label = `${sidoName} ${sigName} ${emdName}`;
+    logBoundaryPropertySample(properties, label);
+    return label;
+  }
+
+  if (sidoName) {
+    if (sigCode || derivedSigCode) {
+      const missingKey = `${derivedSigCode || sigCode}:${emdName}`;
+
+      if (!missingSigunguLogSet.has(missingKey)) {
+        missingSigunguLogSet.add(missingKey);
+        console.warn("[RegionLabel] sig_code mapping missing; falling back to sido + emd.", {
+          emdCode,
+          emdName,
+          derivedSigCode,
+          sigCode,
+          sidoName,
+        });
+      }
+    }
+
+    const label = `${sidoName} ${emdName}`;
+    logBoundaryPropertySample(properties, label);
+    return label;
+  }
+
+  logBoundaryPropertySample(properties, emdName);
+  return emdName;
 }
 
 function getVisitCountBuckets(visitCounts: Map<string, number>): VisitCountBuckets {
@@ -526,6 +663,8 @@ export default function NaverMap() {
   const mapLibreMapRef = useRef<MapLibreMap | null>(null);
   const mapLibreZoomOffsetRef = useRef(DEFAULT_MAPLIBRE_ZOOM_OFFSET);
   const mapSyncRafRef = useRef<number | null>(null);
+  const isMapMovingRef = useRef(false);
+  const rerunHitTestRef = useRef<(() => void) | null>(null);
   const visitCountByDongRef = useRef(new Map<string, number>());
   const dongNameByCodeRef = useRef(new Map<string, string>());
   const topStatDongCodesRef = useRef(new Set<string>());
@@ -1186,6 +1325,7 @@ export default function NaverMap() {
           const offset = mapLibreZoomOffsetRef.current;
           const mapLibreZoom = naverZoomToMapLibreZoom(naverZoom, offset);
 
+          mapLibreMapRef.current.stop();
           mapLibreMapRef.current.resize();
           mapLibreMapRef.current.jumpTo({
             center: DEBUG_FIXED_OVERLAY_VIEW ? [126.978, 37.5665] : naverCenter,
@@ -1215,13 +1355,30 @@ export default function NaverMap() {
           mapSyncRafRef.current = window.requestAnimationFrame(() => {
             mapSyncRafRef.current = null;
             syncOverlayToNaverMap(reason);
+
+            if (reason === "idle") {
+              isMapMovingRef.current = false;
+              window.requestAnimationFrame(() => {
+                rerunHitTestRef.current?.();
+              });
+            }
           });
         }
 
-        ["idle", "bounds_changed", "zoom_changed", "dragend", "resize"].forEach((eventName) => {
+        ["zoom_changed", "bounds_changed", "dragstart", "drag"].forEach((eventName) => {
+          naverApi.maps.Event.addListener(naverMap, eventName, () => {
+            isMapMovingRef.current = true;
+            setHoverLabel(null);
+            scheduleOverlaySync(eventName);
+          });
+        });
+        ["dragend", "resize"].forEach((eventName) => {
           naverApi.maps.Event.addListener(naverMap, eventName, () => {
             scheduleOverlaySync(eventName);
           });
+        });
+        naverApi.maps.Event.addListener(naverMap, "idle", () => {
+          scheduleOverlaySync("idle");
         });
 
         (window as NaverWindow).__setOverlayZoomOffset = (offset: number) => {
@@ -1430,25 +1587,34 @@ export default function NaverMap() {
           if (mapRef.current && overlayMapElementRef.current) {
             let lastManualHitLogTime = 0;
             let hitTestRaf: number | null = null;
-            let pendingMouseMoveEvent: MouseEvent | null = null;
+            let pendingMousePoint: [number, number] | null = null;
+            let lastMousePoint: [number, number] | null = null;
             const manualHitTestElement = mapRef.current;
 
-            const getFeatureAtPointer = (event: MouseEvent) => {
+            const getFeatureAtPoint = (point: [number, number]) => {
+              if (
+                isMapMovingRef.current ||
+                !overlayMap.getLayer(EUPMYEONDONG_FILL_LAYER_ID) ||
+                !overlayMap.isStyleLoaded()
+              ) {
+                return null;
+              }
+
+              const features = overlayMap.queryRenderedFeatures(point, {
+                layers: [EUPMYEONDONG_FILL_LAYER_ID],
+              });
+
+              return features[0] ?? null;
+            };
+
+            const getPointFromMouseEvent = (event: MouseEvent): [number, number] | null => {
               const rect = overlayMapElementRef.current?.getBoundingClientRect();
 
               if (!rect) {
                 return null;
               }
 
-              const point: [number, number] = [
-                event.clientX - rect.left,
-                event.clientY - rect.top,
-              ];
-              const features = overlayMap.queryRenderedFeatures(point, {
-                layers: [EUPMYEONDONG_FILL_LAYER_ID],
-              });
-
-              return features[0] ?? null;
+              return [event.clientX - rect.left, event.clientY - rect.top];
             };
 
             const selectBoundaryFeature = (feature: unknown) => {
@@ -1491,11 +1657,11 @@ export default function NaverMap() {
             const runMouseMoveHitTest = () => {
               hitTestRaf = null;
 
-              if (!pendingMouseMoveEvent) {
+              if (!pendingMousePoint) {
                 return;
               }
 
-              const feature = getFeatureAtPointer(pendingMouseMoveEvent);
+              const feature = getFeatureAtPoint(pendingMousePoint);
               const properties = getBoundaryFeatureProperties(feature as BoundaryFeature);
               const now = Date.now();
 
@@ -1513,7 +1679,14 @@ export default function NaverMap() {
             };
 
             const handleManualMouseMove = (event: MouseEvent) => {
-              pendingMouseMoveEvent = event;
+              const point = getPointFromMouseEvent(event);
+
+              if (!point) {
+                return;
+              }
+
+              pendingMousePoint = point;
+              lastMousePoint = point;
 
               if (hitTestRaf !== null) {
                 return;
@@ -1523,16 +1696,27 @@ export default function NaverMap() {
             };
 
             const handleManualMouseLeave = () => {
-              pendingMouseMoveEvent = null;
+              pendingMousePoint = null;
+              lastMousePoint = null;
               setHoverLabel(null);
               manualHitTestElement.style.cursor = "";
             };
 
             const handleManualClick = (event: MouseEvent) => {
-              const feature = getFeatureAtPointer(event);
+              const point = getPointFromMouseEvent(event);
+              const feature = point ? getFeatureAtPoint(point) : null;
 
               console.info("[Boundary click]", feature?.properties);
               selectBoundaryFeature(feature);
+            };
+
+            rerunHitTestRef.current = () => {
+              if (!lastMousePoint) {
+                return;
+              }
+
+              pendingMousePoint = lastMousePoint;
+              runMouseMoveHitTest();
             };
 
             manualHitTestElement.addEventListener("mousemove", handleManualMouseMove, {
@@ -1551,6 +1735,7 @@ export default function NaverMap() {
               manualHitTestElement.removeEventListener("click", handleManualClick, {
                 capture: true,
               });
+              rerunHitTestRef.current = null;
             };
           }
 

@@ -330,3 +330,7 @@ npm.cmd run build
 ```
 
 `next/font`가 Google Fonts를 가져오기 때문에 네트워크가 차단된 환경에서는 `npm run build`가 Google Fonts fetch 단계에서 실패할 수 있습니다.
+
+## PMTiles 라벨 재생성 주의
+
+GeoJSON의 `sido_name`, `sig_name`, `full_name` property 또는 `lib/sigungu-code-map.json`을 수정했다면 기존 PMTiles에는 자동 반영되지 않습니다. `tmd_preprocess/convert_to_geojson.py`로 GeoJSON을 다시 생성한 뒤 `npm run tiles:build`로 `public/tiles/eupmyeondong.pmtiles`를 반드시 재생성하세요. 기존 PMTiles를 그대로 사용하면 hover/선택 지역명이 깨진 상태로 계속 표시될 수 있습니다.

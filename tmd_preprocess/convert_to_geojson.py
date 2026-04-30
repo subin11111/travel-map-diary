@@ -42,20 +42,20 @@ SIDO_CODE_MAP = {
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Convert eup/myeon/dong WKB CSV to GeoJSON."
+        description="Convert eup/myeon/dong WKB CSV to UTF-8 GeoJSON."
     )
     parser.add_argument("--input", default="eupmyeondong_utf8.csv")
     parser.add_argument("--output", default="eupmyeondong.geojson")
     parser.add_argument(
         "--sigungu-map",
         default="lib/sigungu-code-map.json",
-        help="Optional JSON map from sig_code to sigungu name.",
+        help="JSON map from sig_code to sigungu name.",
     )
     parser.add_argument(
         "--source-crs",
         default="EPSG:4326",
         choices=["EPSG:5179", "EPSG:5181", "EPSG:5186", "EPSG:5187", "EPSG:4326"],
-        help="Source CRS of the WKB geometry. The current 20230915 file is already EPSG:4326.",
+        help="Source CRS of the WKB geometry. The current 20230915 file is EPSG:4326.",
     )
     return parser.parse_args()
 
@@ -119,7 +119,7 @@ def main():
     input_path = Path(args.input)
     output_path = Path(args.output)
 
-    df = pd.read_csv(input_path, dtype=str)
+    df = pd.read_csv(input_path, dtype=str, encoding="utf-8-sig")
     df.columns = [column.strip() for column in df.columns]
 
     missing_columns = [column for column in REQUIRED_COLUMNS if column not in df.columns]
@@ -182,6 +182,7 @@ def main():
                 first_feature_sample = {
                     "emd_code": feature["properties"]["emd_code"],
                     "emd_name": feature["properties"]["emd_name"],
+                    "full_name": feature["properties"]["full_name"],
                     "geometry_type": geometry["type"],
                     "first_coordinate": first_coordinate(geometry),
                 }
@@ -210,6 +211,7 @@ def main():
     print(f"seoul feature count: {seoul_count}")
     print(f"output: {output_path}")
     print(f"done: {len(features)} features")
+    print("PMTiles 속성을 바꿨다면 GeoJSON 생성 후 PMTiles도 반드시 다시 생성하세요.")
 
 
 if __name__ == "__main__":
