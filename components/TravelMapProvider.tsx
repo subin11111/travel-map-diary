@@ -14,6 +14,7 @@ import {
   MAP_SCHEMA_MISSING_MESSAGE,
   canEditMap,
   createTravelMap,
+  deleteTravelMap,
   fetchTravelMaps,
   isMissingMapSharingSchemaError,
   updateTravelMap,
@@ -22,6 +23,7 @@ import {
 
 type CreateMapResult = { ok: true } | { ok: false; errorMessage: string };
 type UpdateMapResult = { ok: true } | { ok: false; errorMessage: string };
+type DeleteMapResult = { ok: true } | { ok: false; errorMessage: string };
 
 type TravelMapContextValue = {
   authUser: User | null;
@@ -37,6 +39,7 @@ type TravelMapContextValue = {
     mapId: string,
     input: { title: string; description?: string | null; icon?: string | null }
   ) => Promise<UpdateMapResult>;
+  deleteMap: (mapId: string) => Promise<DeleteMapResult>;
 };
 
 const TravelMapContext = createContext<TravelMapContextValue | null>(null);
@@ -259,6 +262,49 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
     [authUser, maps]
   );
 
+  const deleteMap = useCallback(
+    async (mapId: string) => {
+      const targetMap = maps.find((map) => map.id === mapId);
+
+      if (!authUser || targetMap?.role !== "owner") {
+        return {
+          ok: false,
+          errorMessage: "지도 소유자만 지도를 삭제할 수 있습니다.",
+        } satisfies DeleteMapResult;
+      }
+
+      try {
+        await deleteTravelMap(mapId);
+
+        const nextMaps = maps.filter((map) => map.id !== mapId);
+        const nextMap =
+          nextMaps.find((map) => map.role === "owner") ?? nextMaps[0] ?? null;
+
+        setMaps(nextMaps);
+        setCurrentMapId(nextMap?.id ?? null);
+        setMapError(null);
+
+        if (typeof window !== "undefined") {
+          if (nextMap) {
+            window.localStorage.setItem(SELECTED_MAP_STORAGE_KEY, nextMap.id);
+          } else {
+            window.localStorage.removeItem(SELECTED_MAP_STORAGE_KEY);
+          }
+        }
+
+        return { ok: true } satisfies DeleteMapResult;
+      } catch (error) {
+        console.error("Failed to delete map:", formatUnknownError(error));
+        return {
+          ok: false,
+          errorMessage:
+            error instanceof Error ? error.message : "지도를 삭제하지 못했습니다.",
+        } satisfies DeleteMapResult;
+      }
+    },
+    [authUser, maps]
+  );
+
   const value = useMemo(
     () => ({
       authUser,
@@ -271,6 +317,7 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
       refreshMaps,
       createMap,
       updateMap,
+      deleteMap,
     }),
     [
       authUser,
@@ -282,6 +329,7 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
       refreshMaps,
       createMap,
       updateMap,
+      deleteMap,
     ]
   );
 

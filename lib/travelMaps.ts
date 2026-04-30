@@ -283,6 +283,14 @@ export async function updateTravelMap(mapId: string, input: UpdateTravelMapInput
   return data as MapRow;
 }
 
+export async function deleteTravelMap(mapId: string) {
+  const { error } = await supabase.from("maps").delete().eq("id", mapId);
+
+  if (error) {
+    throw error;
+  }
+}
+
 export async function fetchMapMembers(mapId: string) {
   const { data, error } = await supabase
     .from("map_members")

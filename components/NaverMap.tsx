@@ -105,35 +105,45 @@ type NaverWindow = Window & {
   naver?: NaverMapApi;
 };
 
-function getVisitStyle(count: number): VisitStyle {
+function getVisitStyle(count: number, isTopDong = false): VisitStyle {
+  if (isTopDong && count > 0) {
+    return {
+      fillColor: "#10b981",
+      fillOpacity: 0.58,
+      strokeColor: "#047857",
+      strokeOpacity: 0.9,
+      strokeWeight: 2,
+    };
+  }
+
   if (count <= 0) {
     return {
-      fillColor: "#FBE4D6",
-      fillOpacity: 0.08,
-      strokeColor: "#261FB3",
-      strokeOpacity: 0.12,
+      fillColor: "#e7e5e4",
+      fillOpacity: 0.18,
+      strokeColor: "#a8a29e",
+      strokeOpacity: 0.28,
       strokeWeight: 1,
     };
   }
 
-  const maxCountForColor = 10;
-  const t = Math.min(count / maxCountForColor, 1);
-
-  const start = { r: 38, g: 31, b: 179 }; // #261FB3
-  const end = { r: 12, g: 9, b: 80 }; // #0C0950
-
-  const r = Math.round(start.r + (end.r - start.r) * t);
-  const g = Math.round(start.g + (end.g - start.g) * t);
-  const b = Math.round(start.b + (end.b - start.b) * t);
-
-  const color = `rgb(${r}, ${g}, ${b})`;
+  const color = count >= 7 ? "#581c87" : count >= 4 ? "#4338ca" : count >= 2 ? "#2563eb" : "#7dd3fc";
 
   return {
     fillColor: color,
-    fillOpacity: 0.2 + t * 0.45,
+    fillOpacity: count >= 7 ? 0.68 : count >= 4 ? 0.58 : count >= 2 ? 0.46 : 0.36,
     strokeColor: color,
-    strokeOpacity: 0.25 + t * 0.45,
+    strokeOpacity: count >= 7 ? 0.86 : 0.7,
     strokeWeight: 1,
+  };
+}
+
+function getSelectedDongStyle(): VisitStyle {
+  return {
+    fillColor: "#f97316",
+    fillOpacity: 0.58,
+    strokeColor: "#c2410c",
+    strokeOpacity: 0.98,
+    strokeWeight: 3,
   };
 }
 
@@ -192,6 +202,8 @@ export default function NaverMap() {
   const polygonGroupsRef = useRef(new Map<string, NaverPolygonInstance[]>());
   const visitCountByDongRef = useRef(new Map<string, number>());
   const dongNameByCodeRef = useRef(new Map<string, string>());
+  const topDongCodesRef = useRef(new Set<string>());
+  const selectedDongCodeRef = useRef<string | null>(null);
   const authUserRef = useRef<User | null>(null);
   const currentMapRef = useRef<TravelMap | null>(null);
   const canEditCurrentMapRef = useRef(false);
@@ -207,26 +219,35 @@ export default function NaverMap() {
     selectMap,
     createMap,
     updateMap,
+    deleteMap,
   } = useTravelMaps();
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [isTimelineOpen, setIsTimelineOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [activeDrawerTab, setActiveDrawerTab] = useState<DrawerTab>("map");
+  const [activeDrawerTab, setActiveDrawerTab] = useState<DrawerTab>("stats");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
+  const [isDeletingMap, setIsDeletingMap] = useState(false);
 
   const [selectedDong, setSelectedDong] = useState<SelectedDong | null>(null);
+  const [isDongPanelOpen, setIsDongPanelOpen] = useState(false);
   const [hoveredDongName, setHoveredDongName] = useState<string | null>(null);
   const [diaries, setDiaries] = useState<DongDiary[]>([]);
+  const [allDiaries, setAllDiaries] = useState<DongDiary[]>([]);
   const [isLoadingDiaries, setIsLoadingDiaries] = useState(false);
+  const [isLoadingAllDiaries, setIsLoadingAllDiaries] = useState(false);
   const [isSavingDiary, setIsSavingDiary] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [diaryTitle, setDiaryTitle] = useState("");
   const [diaryContent, setDiaryContent] = useState("");
   const [diaryEntryDate, setDiaryEntryDate] = useState(() => getTodayDateValue());
   const [timelineSort, setTimelineSort] = useState<TimelineSort>("entry-desc");
+  const [recordSearch, setRecordSearch] = useState("");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoLink, setPhotoLink] = useState("");
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
@@ -241,6 +262,14 @@ export default function NaverMap() {
   });
 
   const sortedDiaries = useMemo(() => sortDiaries(diaries, timelineSort), [diaries, timelineSort]);
+  const sortedAllDiaries = useMemo(() => {
+    const query = recordSearch.trim().toLowerCase();
+    const source = query
+      ? allDiaries.filter((diary) => diary.dong_name.toLowerCase().includes(query))
+      : allDiaries;
+
+    return sortDiaries(source, timelineSort);
+  }, [allDiaries, recordSearch, timelineSort]);
 
   useEffect(() => {
     authUserRef.current = authUser;
@@ -265,9 +294,21 @@ export default function NaverMap() {
     });
   }, []);
 
-  const clearClickPulse = useCallback((dongCode: string, visitCount: number) => {
-    applyPolygonStyle(dongCode, getVisitStyle(visitCount), visitCount > 0 ? 100 : 10);
+  const restyleDong = useCallback((dongCode: string) => {
+    const count = visitCountByDongRef.current.get(dongCode) ?? 0;
+    const isSelected = selectedDongCodeRef.current === dongCode;
+    const isTopDong = topDongCodesRef.current.has(dongCode);
+
+    applyPolygonStyle(
+      dongCode,
+      isSelected ? getSelectedDongStyle() : getVisitStyle(count, isTopDong),
+      isSelected ? 300 : count > 0 ? 100 : 10
+    );
   }, [applyPolygonStyle]);
+
+  const clearClickPulse = useCallback((dongCode: string) => {
+    restyleDong(dongCode);
+  }, [restyleDong]);
 
   function setHoverLabel(name: string | null) {
     setHoveredDongName(name);
@@ -276,6 +317,8 @@ export default function NaverMap() {
   const resetUserScopedMapState = useCallback(() => {
     visitCountByDongRef.current.clear();
     dongNameByCodeRef.current.clear();
+    topDongCodesRef.current.clear();
+    selectedDongCodeRef.current = null;
 
     polygonGroupsRef.current.forEach((_, dongCode) => {
       applyPolygonStyle(dongCode, getVisitStyle(0), 10);
@@ -291,6 +334,8 @@ export default function NaverMap() {
 
   const syncSelectedMapState = useCallback(async (mapId: string | null) => {
     setSelectedDong(null);
+    selectedDongCodeRef.current = null;
+    setIsDongPanelOpen(false);
     setIsModalOpen(false);
     if (photoPreviewUrlRef.current) {
       URL.revokeObjectURL(photoPreviewUrlRef.current);
@@ -310,6 +355,7 @@ export default function NaverMap() {
     if (!mapId) {
       resetUserScopedMapState();
       setDiaries([]);
+      setAllDiaries([]);
       setHoveredDongName(null);
       return;
     }
@@ -336,6 +382,13 @@ export default function NaverMap() {
 
     visitCountByDongRef.current = visitCountMap;
     dongNameByCodeRef.current = dongNameMap;
+    topDongCodesRef.current = new Set(
+      [...visitCountMap.entries()]
+        .filter(([, count]) => count > 0)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([dongCode]) => dongCode)
+    );
 
     const visitedDongCount = visitedPlaces?.length ?? 0;
     const totalVisitCount = (visitedPlaces ?? []).reduce(
@@ -355,10 +408,9 @@ export default function NaverMap() {
     });
 
     polygonGroupsRef.current.forEach((_, dongCode) => {
-      const count = visitCountMap.get(dongCode) ?? 0;
-      applyPolygonStyle(dongCode, getVisitStyle(count), count > 0 ? 100 : 10);
+      restyleDong(dongCode);
     });
-  }, [applyPolygonStyle, resetUserScopedMapState]);
+  }, [resetUserScopedMapState, restyleDong]);
 
   useEffect(() => {
     return () => {
@@ -376,6 +428,51 @@ export default function NaverMap() {
     const mapId = currentMap?.id ?? null;
     void Promise.resolve().then(() => syncSelectedMapState(mapId));
   }, [currentMap?.id, syncSelectedMapState]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadAllDiaries() {
+      if (!currentMap) {
+        setAllDiaries([]);
+        return;
+      }
+
+      setIsLoadingAllDiaries(true);
+
+      try {
+        const { data, error } = await supabase
+          .from("dong_diaries")
+          .select("id, dong_code, dong_name, title, content, photo_url, entry_date, created_at")
+          .eq("map_id", currentMap.id)
+          .order("entry_date", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false });
+
+        if (!isActive) return;
+
+        if (error) throw error;
+
+        setAllDiaries((data ?? []) as DongDiary[]);
+      } catch (error) {
+        console.error("Failed to load all diaries:", error);
+
+        if (isActive) {
+          setAllDiaries([]);
+          setStatusMessage("전체 기록을 불러오지 못했습니다.");
+        }
+      } finally {
+        if (isActive) {
+          setIsLoadingAllDiaries(false);
+        }
+      }
+    }
+
+    void loadAllDiaries();
+
+    return () => {
+      isActive = false;
+    };
+  }, [currentMap]);
 
 
 
@@ -499,7 +596,7 @@ export default function NaverMap() {
           paths,
           clickable: true,
           zIndex: initialVisitCount > 0 ? 100 : 10,
-          ...getVisitStyle(initialVisitCount),
+          ...getVisitStyle(initialVisitCount, topDongCodesRef.current.has(dongCode)),
         });
 
         const existingGroup = polygonGroupsRef.current.get(dongCode) ?? [];
@@ -529,30 +626,24 @@ export default function NaverMap() {
           }
 
           const currentVisitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
+          const previousSelectedDongCode = selectedDongCodeRef.current;
+          selectedDongCodeRef.current = dongCode;
           setSelectedDong({ dongCode, dongName, visitCount: currentVisitCount });
+          setIsDongPanelOpen(true);
+          setIsDrawerOpen(false);
 
-          if (canEditCurrentMapRef.current) {
-            setIsModalOpen(true);
-          } else {
-            setStatusMessage("이 지도는 읽기 전용입니다.");
+          if (previousSelectedDongCode && previousSelectedDongCode !== dongCode) {
+            restyleDong(previousSelectedDongCode);
           }
 
-          const pulseStyle: VisitStyle = {
-            fillColor: "#7c3aed",
-            fillOpacity: 0.42,
-            strokeColor: "#4c1d95",
-            strokeOpacity: 0.95,
-            strokeWeight: 2,
-          };
-
-          applyPolygonStyle(dongCode, pulseStyle, 200);
+          applyPolygonStyle(dongCode, getSelectedDongStyle(), 300);
 
           if (clickPulseTimerRef.current) {
             clearTimeout(clickPulseTimerRef.current);
           }
 
           clickPulseTimerRef.current = setTimeout(() => {
-            clearClickPulse(dongCode, currentVisitCount);
+            clearClickPulse(dongCode);
           }, 380);
         });
       }
@@ -568,7 +659,7 @@ export default function NaverMap() {
         clearTimeout(timeoutId);
       }
     };
-  }, [applyPolygonStyle, clearClickPulse]);
+  }, [applyPolygonStyle, clearClickPulse, restyleDong]);
 
   async function handleDiarySubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -646,7 +737,9 @@ export default function NaverMap() {
         throw error;
       }
 
-      setDiaries((current) => [data as DongDiary, ...current]);
+      const savedDiary = data as DongDiary;
+      setDiaries((current) => [savedDiary, ...current]);
+      setAllDiaries((current) => [savedDiary, ...current]);
       setDiaryTitle("");
       setDiaryContent("");
       setDiaryEntryDate(getTodayDateValue());
@@ -671,16 +764,19 @@ export default function NaverMap() {
         } else {
           visitCountByDongRef.current.set(selectedDong!.dongCode, nextVisitCount);
           dongNameByCodeRef.current.set(selectedDong!.dongCode, selectedDong!.dongName);
+          topDongCodesRef.current = new Set(
+            [...visitCountByDongRef.current.entries()]
+              .filter(([, count]) => count > 0)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 5)
+              .map(([dongCode]) => dongCode)
+          );
           setSelectedDong({
             dongCode: selectedDong!.dongCode,
             dongName: selectedDong!.dongName,
             visitCount: nextVisitCount,
           });
-          applyPolygonStyle(
-            selectedDong!.dongCode,
-            getVisitStyle(nextVisitCount),
-            nextVisitCount > 0 ? 100 : 10
-          );
+          restyleDong(selectedDong!.dongCode);
           setVisitStats(() => {
             const nextVisitedDongCount = visitCountByDongRef.current.size;
             const nextTotalVisitCount = Array.from(visitCountByDongRef.current.values()).reduce(
@@ -765,6 +861,40 @@ export default function NaverMap() {
     setPhotoLink("");
   }
 
+  async function handleDeleteCurrentMap() {
+    if (!currentMap || currentMap.role !== "owner") {
+      setDeleteMessage("지도 소유자만 삭제할 수 있습니다.");
+      return;
+    }
+
+    const confirmed =
+      deleteConfirmText.trim() === "삭제" || deleteConfirmText.trim() === currentMap.title;
+
+    if (!confirmed) {
+      setDeleteMessage(`삭제하려면 "삭제" 또는 "${currentMap.title}"을 입력하세요.`);
+      return;
+    }
+
+    setIsDeletingMap(true);
+    setDeleteMessage(null);
+
+    const result = await deleteMap(currentMap.id);
+
+    if (result.ok) {
+      setIsDeleteOpen(false);
+      setDeleteConfirmText("");
+      setSelectedDong(null);
+      selectedDongCodeRef.current = null;
+      setIsDongPanelOpen(false);
+      setDiaries([]);
+      setAllDiaries([]);
+    } else {
+      setDeleteMessage(result.errorMessage);
+    }
+
+    setIsDeletingMap(false);
+  }
+
   async function handleLogout() {
     setIsAuthSubmitting(true);
     setAuthMessage(null);
@@ -822,11 +952,9 @@ export default function NaverMap() {
     totalDongCount > 0 ? Math.round((visitStats.visitedDongCount / totalDongCount) * 100) : 0;
   const mapTitle = currentMap?.title ?? (isLoadingMaps ? "지도 불러오는 중" : "서울 동 단위 여행 일기");
   const drawerTabs: { id: DrawerTab; label: string }[] = [
-    { id: "map", label: "지도" },
     { id: "stats", label: "통계" },
     { id: "status", label: "현황" },
-    { id: "records", label: "기록" },
-    { id: "account", label: "계정" },
+    { id: "records", label: "전체 기록" },
   ];
   const renderTimelineSortSelect = () => (
     <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
@@ -973,7 +1101,7 @@ export default function NaverMap() {
                   닫기
                 </button>
               </div>
-              <div className="mt-4 grid grid-cols-5 gap-1 rounded-2xl bg-white/5 p-1">
+              <div className="mt-4 grid grid-cols-3 gap-1 rounded-2xl bg-white/5 p-1">
                 {drawerTabs.map((tab) => (
                   <button
                     key={tab.id}
@@ -993,6 +1121,96 @@ export default function NaverMap() {
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+              <div className="mb-4 space-y-3">
+                <section className="rounded-[24px] border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
+                    계정 / 지도 선택
+                  </p>
+                  <h3 className="mt-2 truncate text-lg font-semibold">
+                    {authUser?.email ? authUser.email.split("@")[0] : "로그인 전"}
+                  </h3>
+                  <p className="mt-1 truncate text-sm text-slate-300">
+                    {currentMap?.icon ? `${currentMap.icon} ` : ""}
+                    {currentMap?.title ?? "선택된 지도 없음"}
+                  </p>
+                  {maps.length > 0 ? (
+                    <select
+                      value={currentMap?.id ?? ""}
+                      onChange={(event) => selectMap(event.target.value)}
+                      disabled={isLoadingMaps}
+                      className="mt-3 w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none focus:border-sky-300 disabled:cursor-not-allowed disabled:text-slate-400"
+                    >
+                      {ownedMaps.length > 0 ? (
+                        <optgroup label="내 지도">
+                          {ownedMaps.map((map) => (
+                            <option key={map.id} value={map.id}>
+                              {map.icon ? `${map.icon} ` : ""}
+                              {map.title}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ) : null}
+                      {sharedMaps.length > 0 ? (
+                        <optgroup label="공유받은 지도">
+                          {sharedMaps.map((map) => (
+                            <option key={map.id} value={map.id}>
+                              {map.icon ? `${map.icon} ` : ""}
+                              {map.title}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ) : null}
+                    </select>
+                  ) : (
+                    <div className="mt-3 rounded-2xl border border-white/15 bg-black/25 px-4 py-3 text-sm text-slate-200">
+                      아직 사용할 수 있는 지도가 없습니다.
+                    </div>
+                  )}
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsCreateOpen(true)}
+                      className="rounded-2xl bg-sky-400 px-4 py-3 text-sm font-semibold text-slate-950"
+                    >
+                      새 지도
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditOpen(true)}
+                      disabled={currentMap?.role !== "owner"}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:text-slate-500"
+                    >
+                      지도 설정
+                    </button>
+                    {currentMap?.role === "owner" ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setIsShareOpen(true)}
+                          className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white"
+                        >
+                          공유 관리
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeleteConfirmText("");
+                            setDeleteMessage(null);
+                            setIsDeleteOpen(true);
+                          }}
+                          className="rounded-2xl border border-rose-300/20 bg-rose-500/10 px-4 py-3 text-sm font-semibold text-rose-200"
+                        >
+                          지도 삭제
+                        </button>
+                      </>
+                    ) : currentMap ? (
+                      <p className="col-span-2 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-300">
+                        지도 설정과 삭제는 소유자만 사용할 수 있습니다.
+                      </p>
+                    ) : null}
+                  </div>
+                </section>
+              </div>
               {activeDrawerTab === "map" ? (
                 <div className="space-y-4">
                   {authUser ? (
@@ -1122,10 +1340,13 @@ export default function NaverMap() {
               {activeDrawerTab === "status" ? (
                 <div className="space-y-3">
                   {[
-                    ["방문 전", "#FBE4D6", "아직 기록이 없는 동입니다."],
-                    ["1회 이상 방문", "#261FB3", "방문 기록 또는 일기가 있는 동입니다."],
-                    ["통계 상위 동", "#34d399", "가장 많이 방문한 동은 통계 탭에서 확인합니다."],
-                    ["선택된 동", "#7c3aed", selectedDong ? selectedDong.dongName : "아직 선택된 동이 없습니다."],
+                    ["방문 전", "#e7e5e4", "아직 기록이 없는 동입니다."],
+                    ["1회", "#7dd3fc", "한 번 방문한 동입니다."],
+                    ["2~3회", "#2563eb", "여러 번 방문한 동입니다."],
+                    ["4~6회", "#4338ca", "방문 횟수가 높은 동입니다."],
+                    ["7회 이상", "#581c87", "방문 횟수가 매우 높은 동입니다."],
+                    ["Top 5", "#10b981", "방문 횟수 기준 상위 5개 동입니다."],
+                    ["선택된 동", "#f97316", selectedDong ? selectedDong.dongName : "아직 선택된 동이 없습니다."],
                   ].map(([label, color, detail]) => (
                     <div key={label} className="flex items-center gap-3 rounded-[24px] border border-white/10 bg-white/5 p-4">
                       <span className="h-4 w-4 rounded-full border border-white/50" style={{ backgroundColor: color }} />
@@ -1142,27 +1363,29 @@ export default function NaverMap() {
                 <div className="space-y-3">
                   <div className="rounded-[24px] border border-white/10 bg-white/5 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
-                      선택된 동의 타임라인
+                      현재 지도 전체 기록
                     </p>
                     <h3 className="mt-2 text-lg font-semibold">
-                      {selectedDong ? selectedDong.dongName : "동을 선택하세요"}
+                      {currentMap?.title ?? "지도 없음"}
                     </h3>
                   </div>
-                  {selectedDong ? renderTimelineSortSelect() : null}
-                  {!selectedDong ? (
+                  {renderTimelineSortSelect()}
+                  <input
+                    value={recordSearch}
+                    onChange={(event) => setRecordSearch(event.target.value)}
+                    placeholder="동 이름으로 검색"
+                    className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-300"
+                  />
+                  {isLoadingAllDiaries ? (
                     <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-300">
-                      지도에서 동을 선택하면 기록을 확인할 수 있습니다.
+                      전체 기록을 불러오는 중입니다.
                     </div>
-                  ) : isLoadingDiaries ? (
-                    <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-300">
-                      일기를 불러오는 중입니다.
-                    </div>
-                  ) : diaries.length === 0 ? (
+                  ) : sortedAllDiaries.length === 0 ? (
                     <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-300">
-                      아직 작성된 일기가 없습니다.
+                      표시할 기록이 없습니다.
                     </div>
                   ) : (
-                    sortedDiaries.map((diary) => (
+                    sortedAllDiaries.map((diary) => (
                       <article key={diary.id} className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
                         {diary.photo_url ? (
                           <div className="relative h-40 w-full">
@@ -1170,6 +1393,7 @@ export default function NaverMap() {
                           </div>
                         ) : null}
                         <div className="space-y-3 p-4">
+                          <p className="text-xs font-semibold text-sky-300">{diary.dong_name}</p>
                           <h4 className="text-base font-semibold text-white">
                             {diary.title ?? diary.dong_name}
                           </h4>
@@ -1233,6 +1457,86 @@ export default function NaverMap() {
               ) : null}
             </div>
           </aside>
+        </div>
+      ) : null}
+
+      {isDongPanelOpen && selectedDong ? (
+        <div className="fixed inset-x-0 bottom-0 z-[55] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:bottom-5 lg:left-auto lg:right-5 lg:w-[420px] lg:p-0">
+          <section className="max-h-[72dvh] overflow-hidden rounded-[28px] border border-white/15 bg-slate-950 text-white shadow-[0_28px_80px_rgba(15,23,42,0.36)]">
+            <div className="border-b border-white/10 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-300">
+                    선택된 동
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold">{selectedDong.dongName}</h2>
+                  <p className="mt-1 text-sm text-slate-300">방문 {selectedDong.visitCount}회</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const dongCode = selectedDongCodeRef.current;
+                    selectedDongCodeRef.current = null;
+                    setIsDongPanelOpen(false);
+                    setSelectedDong(null);
+                    if (dongCode) {
+                      restyleDong(dongCode);
+                    }
+                  }}
+                  className="rounded-full bg-white/10 px-3 py-1 text-sm font-medium text-white"
+                >
+                  닫기
+                </button>
+              </div>
+              <div className="mt-4 flex gap-2">
+                {canEditCurrentMap ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(true)}
+                    className="rounded-2xl bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950"
+                  >
+                    일기 추가
+                  </button>
+                ) : (
+                  <span className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300">
+                    읽기 전용 지도
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="max-h-[46dvh] space-y-3 overflow-y-auto p-4">
+              {renderTimelineSortSelect()}
+              {isLoadingDiaries ? (
+                <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-5 text-sm text-slate-300">
+                  일기를 불러오는 중입니다.
+                </div>
+              ) : diaries.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-5 text-sm text-slate-300">
+                  아직 작성된 일기가 없습니다.
+                </div>
+              ) : (
+                sortedDiaries.map((diary) => (
+                  <article key={diary.id} className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+                    {diary.photo_url ? (
+                      <div className="relative h-36 w-full">
+                        <Image src={diary.photo_url} alt={diary.title ?? diary.dong_name} fill unoptimized className="object-cover" />
+                      </div>
+                    ) : null}
+                    <div className="space-y-2 p-4">
+                      <h3 className="font-semibold">{diary.title ?? diary.dong_name}</h3>
+                      <div className="space-y-1 text-xs text-slate-400">
+                        <p>기록 날짜: {formatEntryDate(diary.entry_date, diary.created_at)}</p>
+                        <p>작성: {formatDateTime(diary.created_at)}</p>
+                      </div>
+                      <p className="whitespace-pre-wrap text-sm leading-6 text-slate-200">
+                        {diary.content}
+                      </p>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
         </div>
       ) : null}
 
@@ -1303,19 +1607,19 @@ export default function NaverMap() {
                 </div>
                 <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-1">
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-slate-300 bg-[#FBE4D6]" />
+                    <span className="h-2 w-2 rounded-full border border-slate-300 bg-[#e7e5e4]" />
                     방문 전
                   </div>
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-[#261FB3] bg-[#261FB3]" />
+                    <span className="h-2 w-2 rounded-full border border-[#7dd3fc] bg-[#7dd3fc]" />
                     1회 이상 방문
                   </div>
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-emerald-400 bg-emerald-400" />
+                    <span className="h-2 w-2 rounded-full border border-[#10b981] bg-[#10b981]" />
                     통계 상위 동
                   </div>
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-violet-500 bg-violet-500" />
+                    <span className="h-2 w-2 rounded-full border border-[#f97316] bg-[#f97316]" />
                     선택한 동
                   </div>
                 </div>
@@ -1502,6 +1806,49 @@ export default function NaverMap() {
         map={currentMap}
         onClose={() => setIsShareOpen(false)}
       />
+      {isDeleteOpen && currentMap ? (
+        <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-[28px] bg-white p-6 shadow-[0_30px_80px_rgba(15,23,42,0.3)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-rose-700">
+              Delete map
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">지도 삭제</h2>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              {currentMap.title} 지도를 삭제하면 연결된 방문 기록과 일기도 함께 삭제됩니다.
+            </p>
+            <label className="mt-5 block space-y-2 text-sm font-semibold text-slate-700">
+              <span>확인을 위해 &quot;삭제&quot; 또는 지도 이름을 입력하세요.</span>
+              <input
+                value={deleteConfirmText}
+                onChange={(event) => setDeleteConfirmText(event.target.value)}
+                className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-950 outline-none focus:border-rose-400"
+              />
+            </label>
+            {deleteMessage ? (
+              <p className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">
+                {deleteMessage}
+              </p>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsDeleteOpen(false)}
+                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteCurrentMap}
+                disabled={isDeletingMap}
+                className="rounded-2xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+              >
+                {isDeletingMap ? "삭제 중" : "삭제"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
