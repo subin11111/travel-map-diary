@@ -121,7 +121,7 @@ export default function MapSelector() {
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
         onCreate={async (title, description) => {
-          await createMap(title, description);
+          return createMap(title, description);
         }}
       />
       <MapShareModal

@@ -92,6 +92,15 @@ SQL 적용 후에도 `Could not find the table 'public.map_members' in the schem
 6. 공유 받은 지도 목록 조회 확인
 7. `npm.cmd run lint` 실행
 
+지도 생성 실패 시 Supabase에서 확인할 항목:
+
+- `public.maps` 테이블 존재 여부
+- `public.map_members` 테이블 존재 여부
+- `public.create_travel_map` RPC 함수 존재 여부
+- `maps` insert RLS policy 존재 여부
+- `map_members` insert RLS policy 또는 `security definer` RPC 설정 여부
+- SQL 적용 후 schema cache reload 여부
+
 ## 환경 변수
 
 프로젝트 루트에 `.env.local` 파일을 만들고 아래 값을 설정합니다.
@@ -144,3 +153,79 @@ http://localhost:3000
 - 일기 사진 업로드 정책과 오류 메시지 보강
 - Supabase 마이그레이션 정리 및 배포 절차 문서화
 - 모바일 지도 조작과 타임라인 UI 개선
+
+## 배포 방법
+
+### 1. Vercel 배포 순서
+
+1. GitHub 저장소를 Vercel에 Import합니다.
+2. Framework Preset은 `Next.js`로 둡니다.
+3. Root Directory는 프로젝트 루트(`travel-map-diary`)로 설정합니다.
+4. Install Command는 기본값 `npm install`, Build Command는 `npm run build`, Output Directory는 비워 둡니다.
+5. 아래 환경 변수를 Vercel Project Settings > Environment Variables에 등록한 뒤 Production/Preview 배포를 실행합니다.
+
+### 2. Vercel 환경 변수
+
+`.env.local`에서 사용하는 모든 public 환경 변수는 Vercel에도 같은 이름으로 등록해야 합니다.
+
+```env
+NEXT_PUBLIC_NAVER_MAP_CLIENT_ID=your_naver_map_client_id
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+
+- `NEXT_PUBLIC_SUPABASE_URL`: Supabase Project URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Supabase anon/public key만 사용합니다.
+- `NEXT_PUBLIC_NAVER_MAP_CLIENT_ID`: Naver Maps JavaScript API Client ID 또는 ncpKeyId
+
+보안 주의:
+
+- Supabase service role key는 클라이언트 코드와 `NEXT_PUBLIC_*` 환경 변수에 절대 넣지 않습니다.
+- 브라우저에서 사용하는 키는 Supabase anon key만 허용합니다.
+- 데이터 접근 권한은 Supabase Storage/RLS 정책으로 제어합니다.
+
+### 3. Supabase Auth URL 설정
+
+Supabase Dashboard > Authentication > URL Configuration에서 배포 도메인을 등록합니다.
+
+- Site URL: `https://배포도메인.vercel.app`
+- Redirect URLs:
+  - `https://배포도메인.vercel.app`
+  - `https://배포도메인.vercel.app/login`
+  - `https://배포도메인.vercel.app/signup`
+  - `https://배포도메인.vercel.app/profile`
+
+회원가입 이메일 확인 링크는 현재 접속한 origin 기준 `/login`으로 돌아가도록 설정되어 있으므로, Preview 배포를 테스트할 때는 해당 Preview URL도 Redirect URLs에 추가하세요.
+
+### 4. Naver Maps 인증 도메인 설정
+
+Naver Cloud Platform > Maps > Application 인증 정보의 Web 서비스 URL에 아래 도메인을 등록합니다.
+
+- 로컬 개발용: `http://localhost:3000`
+- 배포용: `https://배포도메인.vercel.app`
+
+Preview 배포 URL에서 지도까지 확인하려면 해당 Preview URL도 인증 도메인에 임시로 추가합니다.
+
+### 5. 배포 전 점검 체크리스트
+
+- `npm.cmd run lint` 통과
+- `npm run build` 통과
+- 코드에 `localhost`, `127.0.0.1`, 고정 absolute app URL이 하드코딩되어 있지 않은지 확인
+- Vercel에 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_NAVER_MAP_CLIENT_ID` 등록
+- Supabase Auth Site URL과 Redirect URLs에 배포 URL 등록
+- Naver Maps 인증 도메인에 배포 URL 등록
+- Supabase 마이그레이션과 RLS/Storage 정책 적용 확인
+
+### 6. 배포 후 테스트 체크리스트
+
+- 홈 접속
+- 네이버 지도 로딩
+- 로그인
+- 회원가입
+- 로그아웃
+- 지도 생성
+- 지도 선택
+- 지도 공유
+- 일기 저장
+- 사진 업로드 및 표시
+- 새로고침 후 세션 유지

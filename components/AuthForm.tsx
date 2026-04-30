@@ -139,9 +139,14 @@ export default function AuthForm({ mode }: AuthFormProps) {
         throw new Error("already registered");
       }
 
+      const emailRedirectTo = `${window.location.origin}/login`;
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password: authPassword,
+        options: {
+          emailRedirectTo,
+        },
       });
 
       if (error) throw error;

@@ -5,7 +5,7 @@ import { useState } from "react";
 type MapCreateModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (title: string, description?: string) => Promise<void>;
+  onCreate: (title: string, description?: string) => Promise<{ ok: true } | { ok: false; errorMessage: string }>;
 };
 
 export default function MapCreateModal({ isOpen, onClose, onCreate }: MapCreateModalProps) {
@@ -29,16 +29,17 @@ export default function MapCreateModal({ isOpen, onClose, onCreate }: MapCreateM
     setIsSaving(true);
     setMessage(null);
 
-    try {
-      await onCreate(title, description);
+    const result = await onCreate(title, description);
+
+    if (result.ok) {
       setTitle("");
       setDescription("");
       onClose();
-    } catch {
-      setMessage("지도를 만들지 못했습니다.");
-    } finally {
-      setIsSaving(false);
+    } else {
+      setMessage(result.errorMessage);
     }
+
+    setIsSaving(false);
   }
 
   return (

@@ -57,6 +57,10 @@ type SupabaseErrorLike = {
   message?: string;
   details?: string;
   hint?: string;
+  name?: string;
+  status?: number;
+  statusText?: string;
+  stack?: string;
 };
 
 type SharedMemberRow = {
@@ -71,6 +75,10 @@ type SharedMemberRow = {
 type CreateTravelMapRow = MapRow & {
   role: MapRole;
 };
+
+export type CreateTravelMapResult =
+  | { ok: true; map: TravelMap }
+  | { ok: false; errorMessage: string; debug?: unknown };
 
 export const MAP_SCHEMA_MISSING_MESSAGE =
   "지도 공유 기능을 위한 DB 테이블이 아직 생성되지 않았습니다. Supabase SQL 마이그레이션을 적용해 주세요.";
@@ -98,19 +106,87 @@ export function canEditMap(role: MapRole | null | undefined) {
   return role === "owner" || role === "editor";
 }
 
-export function logSupabaseError(context: string, error: unknown) {
-  if (error && typeof error === "object") {
-    const supabaseError = error as SupabaseErrorLike;
-    console.error(context, {
-      code: supabaseError.code ?? null,
-      message: supabaseError.message ?? null,
-      details: supabaseError.details ?? null,
-      hint: supabaseError.hint ?? null,
-    });
-    return;
+export function extractSupabaseErrorDebug(error: unknown) {
+  if (error == null) {
+    return "No error object was returned.";
   }
 
-  console.error(context, error);
+  if (typeof error !== "object") {
+    return String(error);
+  }
+
+  const errorRecord = error as Record<string, unknown>;
+  const supabaseError = error as SupabaseErrorLike;
+  const ownProperties = Object.getOwnPropertyNames(error).reduce<Record<string, unknown>>(
+    (result, key) => ({
+      ...result,
+      [key]: errorRecord[key],
+    }),
+    {}
+  );
+  const enumerableEntries = Object.fromEntries(Object.entries(errorRecord));
+
+  const debug = {
+    code: supabaseError.code ?? null,
+    message: supabaseError.message ?? null,
+    details: supabaseError.details ?? null,
+    hint: supabaseError.hint ?? null,
+    name: supabaseError.name ?? null,
+    status: supabaseError.status ?? null,
+    statusText: supabaseError.statusText ?? null,
+    stack: supabaseError.stack ?? null,
+    ownProperties,
+    enumerableEntries,
+  };
+
+  return JSON.stringify(debug, null, 2);
+}
+
+export function getTravelMapCreateErrorMessage(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return "지도를 만들지 못했습니다. 잠시 후 다시 시도해 주세요.";
+  }
+
+  const supabaseError = error as SupabaseErrorLike;
+  const code = supabaseError.code ?? "";
+  const message = supabaseError.message ?? "";
+
+  if (
+    code === "PGRST205" ||
+    /function.*create_travel_map|schema cache|Could not find/i.test(message)
+  ) {
+    return "지도 공유 기능 DB 설정이 아직 완료되지 않았습니다.";
+  }
+
+  if (code === "42501" || /permission denied|row-level security|RLS/i.test(message)) {
+    return "지도 생성 권한 설정이 필요합니다. Supabase 정책을 확인해 주세요.";
+  }
+
+  if (code === "23505") {
+    return "이미 같은 정보가 저장되어 있습니다.";
+  }
+
+  if (code === "23503") {
+    return "로그인 정보 또는 지도 권한 연결을 확인하지 못했습니다.";
+  }
+
+  if (/auth\.uid|로그인이 필요/i.test(message)) {
+    return "로그인 정보를 확인하지 못했습니다.";
+  }
+
+  if (/maps/i.test(message)) {
+    return "지도 테이블에 저장하지 못했습니다.";
+  }
+
+  if (/map_members/i.test(message)) {
+    return "지도 소유자 권한을 생성하지 못했습니다.";
+  }
+
+  return "지도를 만들지 못했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
+export function logSupabaseWarning(context: string, error: unknown) {
+  console.warn(`${context}\n${extractSupabaseErrorDebug(error)}`);
 }
 
 export async function fetchTravelMaps() {
@@ -135,7 +211,10 @@ export async function fetchTravelMaps() {
     }));
 }
 
-export async function createTravelMap(title: string, description?: string) {
+export async function createTravelMap(
+  title: string,
+  description?: string
+): Promise<CreateTravelMapResult> {
   const { data, error } = await supabase
     .rpc("create_travel_map", {
       p_title: title,
@@ -144,15 +223,22 @@ export async function createTravelMap(title: string, description?: string) {
     .single();
 
   if (error) {
-    logSupabaseError("Failed to create travel map:", error);
-    throw error;
+    logSupabaseWarning("Failed to create travel map via RPC.", error);
+    return {
+      ok: false,
+      errorMessage: getTravelMapCreateErrorMessage(error),
+      debug: extractSupabaseErrorDebug(error),
+    };
   }
 
   const createdMap = data as CreateTravelMapRow;
 
   return {
-    ...createdMap,
-    role: "owner" as const,
+    ok: true,
+    map: {
+      ...createdMap,
+      role: "owner" as const,
+    },
   };
 }
 

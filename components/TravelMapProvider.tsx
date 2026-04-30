@@ -19,6 +19,8 @@ import {
   type TravelMap,
 } from "@/lib/travelMaps";
 
+type CreateMapResult = { ok: true } | { ok: false; errorMessage: string };
+
 type TravelMapContextValue = {
   authUser: User | null;
   maps: TravelMap[];
@@ -28,7 +30,7 @@ type TravelMapContextValue = {
   canEditCurrentMap: boolean;
   selectMap: (mapId: string) => void;
   refreshMaps: () => Promise<void>;
-  createMap: (title: string, description?: string) => Promise<TravelMap>;
+  createMap: (title: string, description?: string) => Promise<CreateMapResult>;
 };
 
 const TravelMapContext = createContext<TravelMapContextValue | null>(null);
@@ -100,21 +102,21 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (nextMaps.length === 0) {
-      try {
-        const defaultMap = await createTravelMap(DEFAULT_MAP_TITLE);
-        nextMaps = [defaultMap];
-      } catch (error) {
-        if (isMissingMapSharingSchemaError(error)) {
-          setMapError(MAP_SCHEMA_MISSING_MESSAGE);
-        } else {
-          setMapError("아직 생성된 지도가 없습니다. 새 지도를 만들어 주세요.");
-        }
+      const defaultMapResult = await createTravelMap(DEFAULT_MAP_TITLE);
 
+      if (!defaultMapResult.ok) {
+        setMapError(
+          defaultMapResult.errorMessage === "지도 공유 기능 DB 설정이 아직 완료되지 않았습니다."
+            ? MAP_SCHEMA_MISSING_MESSAGE
+            : "아직 생성된 지도가 없습니다. 새 지도를 만들어 주세요."
+        );
         setMaps([]);
         setCurrentMapId(null);
         setIsLoadingMaps(false);
         return;
       }
+
+      nextMaps = [defaultMapResult.map];
     }
 
     setMaps(nextMaps);
@@ -182,25 +184,29 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
   const createMap = useCallback(
     async (title: string, description?: string) => {
       if (!authUser) {
-        throw new Error("로그인이 필요합니다.");
+        return {
+          ok: false,
+          errorMessage: "로그인 정보를 확인하지 못했습니다.",
+        } satisfies CreateMapResult;
       }
 
-      let nextMap: TravelMap;
+      const result = await createTravelMap(title, description);
 
-      try {
-        nextMap = await createTravelMap(title, description);
-      } catch (error) {
-        if (isMissingMapSharingSchemaError(error)) {
+      if (!result.ok) {
+        if (result.errorMessage === "지도 공유 기능 DB 설정이 아직 완료되지 않았습니다.") {
           setMapError(MAP_SCHEMA_MISSING_MESSAGE);
         }
 
-        throw error;
+        return {
+          ok: false,
+          errorMessage: result.errorMessage,
+        } satisfies CreateMapResult;
       }
 
-      setMaps((current) => [...current, nextMap]);
+      setMaps((current) => [...current, result.map]);
       setMapError(null);
-      selectMap(nextMap.id);
-      return nextMap;
+      selectMap(result.map.id);
+      return { ok: true } satisfies CreateMapResult;
     },
     [authUser, selectMap]
   );
