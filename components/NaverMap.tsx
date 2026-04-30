@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import MapCreateModal from "@/components/MapCreateModal";
@@ -34,6 +34,7 @@ type VisitStats = {
 };
 
 type DrawerTab = "map" | "stats" | "status" | "records" | "account";
+type TimelineSort = "entry-desc" | "entry-asc" | "created-desc";
 
 type DongDiary = {
   id: string;
@@ -42,6 +43,7 @@ type DongDiary = {
   title: string | null;
   content: string;
   photo_url: string | null;
+  entry_date: string | null;
   created_at: string;
 };
 
@@ -145,6 +147,42 @@ function formatDateTime(value: string) {
   });
 }
 
+function getTodayDateValue() {
+  const now = new Date();
+  const localTime = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return localTime.toISOString().slice(0, 10);
+}
+
+function getDiaryEntryDate(diary: DongDiary) {
+  return diary.entry_date ?? diary.created_at.slice(0, 10);
+}
+
+function formatEntryDate(entryDate: string | null, createdAt: string) {
+  const dateValue = entryDate ?? createdAt.slice(0, 10);
+
+  return new Date(`${dateValue}T00:00:00`).toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function sortDiaries(diaries: DongDiary[], sort: TimelineSort) {
+  return [...diaries].sort((a, b) => {
+    if (sort === "created-desc") {
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }
+
+    const entryDateCompare = getDiaryEntryDate(a).localeCompare(getDiaryEntryDate(b));
+
+    if (entryDateCompare !== 0) {
+      return sort === "entry-asc" ? entryDateCompare : -entryDateCompare;
+    }
+
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
+}
+
 export default function NaverMap() {
   const mapRef = useRef<HTMLDivElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -187,6 +225,8 @@ export default function NaverMap() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [diaryTitle, setDiaryTitle] = useState("");
   const [diaryContent, setDiaryContent] = useState("");
+  const [diaryEntryDate, setDiaryEntryDate] = useState(() => getTodayDateValue());
+  const [timelineSort, setTimelineSort] = useState<TimelineSort>("entry-desc");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoLink, setPhotoLink] = useState("");
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
@@ -199,6 +239,8 @@ export default function NaverMap() {
     topDongName: null,
     topVisitCount: 0,
   });
+
+  const sortedDiaries = useMemo(() => sortDiaries(diaries, timelineSort), [diaries, timelineSort]);
 
   useEffect(() => {
     authUserRef.current = authUser;
@@ -262,6 +304,7 @@ export default function NaverMap() {
     }
     setDiaryTitle("");
     setDiaryContent("");
+    setDiaryEntryDate(getTodayDateValue());
     setPhotoLink("");
 
     if (!mapId) {
@@ -351,9 +394,10 @@ export default function NaverMap() {
       try {
         const { data, error } = await supabase
           .from("dong_diaries")
-          .select("id, dong_code, dong_name, title, content, photo_url, created_at")
+          .select("id, dong_code, dong_name, title, content, photo_url, entry_date, created_at")
           .eq("dong_code", selectedDong.dongCode)
           .eq("map_id", currentMap.id)
+          .order("entry_date", { ascending: false, nullsFirst: false })
           .order("created_at", { ascending: false });
 
         if (!isActive) return;
@@ -593,8 +637,9 @@ export default function NaverMap() {
           title: diaryTitle.trim() || null,
           content: trimmedContent,
           photo_url: photoUrl,
+          entry_date: diaryEntryDate || getTodayDateValue(),
         })
-        .select("id, dong_code, dong_name, title, content, photo_url, created_at")
+        .select("id, dong_code, dong_name, title, content, photo_url, entry_date, created_at")
         .single();
 
       if (error) {
@@ -604,6 +649,7 @@ export default function NaverMap() {
       setDiaries((current) => [data as DongDiary, ...current]);
       setDiaryTitle("");
       setDiaryContent("");
+      setDiaryEntryDate(getTodayDateValue());
       clearPhotoSelection();
       setPhotoLink("");
       // After successful diary insert, increment visited_places.visit_count for this user only.
@@ -715,6 +761,7 @@ export default function NaverMap() {
     clearPhotoSelection();
     setDiaryTitle("");
     setDiaryContent("");
+    setDiaryEntryDate(getTodayDateValue());
     setPhotoLink("");
   }
 
@@ -781,6 +828,20 @@ export default function NaverMap() {
     { id: "records", label: "기록" },
     { id: "account", label: "계정" },
   ];
+  const renderTimelineSortSelect = () => (
+    <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
+      정렬
+      <select
+        value={timelineSort}
+        onChange={(event) => setTimelineSort(event.target.value as TimelineSort)}
+        className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm font-medium normal-case tracking-normal text-white outline-none focus:border-sky-300"
+      >
+        <option value="entry-desc">기록 날짜 최신순</option>
+        <option value="entry-asc">기록 날짜 오래된순</option>
+        <option value="created-desc">작성일 최신순</option>
+      </select>
+    </label>
+  );
 
   return (
     <main className="min-h-dvh overflow-hidden bg-slate-950 text-slate-900">
@@ -833,6 +894,15 @@ export default function NaverMap() {
                 placeholder="제목"
                 className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-500 focus:border-sky-500"
               />
+              <label className="block space-y-2 text-sm font-semibold text-slate-700">
+                <span>기록 날짜</span>
+                <input
+                  type="date"
+                  value={diaryEntryDate}
+                  onChange={(event) => setDiaryEntryDate(event.target.value)}
+                  className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-950 outline-none focus:border-sky-500"
+                />
+              </label>
               <textarea
                 value={diaryContent}
                 onChange={(e) => setDiaryContent(e.target.value)}
@@ -1078,6 +1148,7 @@ export default function NaverMap() {
                       {selectedDong ? selectedDong.dongName : "동을 선택하세요"}
                     </h3>
                   </div>
+                  {selectedDong ? renderTimelineSortSelect() : null}
                   {!selectedDong ? (
                     <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-300">
                       지도에서 동을 선택하면 기록을 확인할 수 있습니다.
@@ -1091,7 +1162,7 @@ export default function NaverMap() {
                       아직 작성된 일기가 없습니다.
                     </div>
                   ) : (
-                    diaries.map((diary) => (
+                    sortedDiaries.map((diary) => (
                       <article key={diary.id} className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
                         {diary.photo_url ? (
                           <div className="relative h-40 w-full">
@@ -1102,7 +1173,10 @@ export default function NaverMap() {
                           <h4 className="text-base font-semibold text-white">
                             {diary.title ?? diary.dong_name}
                           </h4>
-                          <p className="text-xs text-slate-400">{formatDateTime(diary.created_at)}</p>
+                          <div className="space-y-1 text-xs text-slate-400">
+                            <p>기록 날짜: {formatEntryDate(diary.entry_date, diary.created_at)}</p>
+                            <p>작성: {formatDateTime(diary.created_at)}</p>
+                          </div>
                           <p className="whitespace-pre-wrap text-sm leading-6 text-slate-200">
                             {diary.content}
                           </p>
@@ -1355,6 +1429,7 @@ export default function NaverMap() {
                 {isLoadingDiaries ? "불러오는 중" : `${diaries.length}개`}
               </span>
             </div>
+            {selectedDong ? <div className="mt-4">{renderTimelineSortSelect()}</div> : null}
 
             <div className="mt-4 max-h-[30vh] space-y-3 overflow-y-auto pr-1 sm:max-h-[34vh] lg:max-h-[calc(100vh-560px)]">
               {!selectedDong ? (
@@ -1370,7 +1445,7 @@ export default function NaverMap() {
                   아직 작성된 일기가 없습니다. 첫 기록을 남겨보세요.
                 </div>
               ) : (
-                diaries.map((diary) => (
+                sortedDiaries.map((diary) => (
                   <article
                     key={diary.id}
                     className="overflow-hidden rounded-2xl border border-white/10 bg-black/20"
@@ -1393,7 +1468,10 @@ export default function NaverMap() {
                             {diary.title ?? diary.dong_name}
                           </h4>
                           <p className="mt-1 text-xs text-slate-400">
-                            {formatDateTime(diary.created_at)}
+                            기록 날짜: {formatEntryDate(diary.entry_date, diary.created_at)}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            작성: {formatDateTime(diary.created_at)}
                           </p>
                         </div>
                       </div>
