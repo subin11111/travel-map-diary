@@ -240,7 +240,7 @@ export default function AuthForm({ mode }: AuthFormProps) {
               </div>
               <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">3</p>
-                <p className="mt-2 leading-6">로그인 후에는 서울 동 방문 기록과 사진을 바로 저장할 수 있습니다.</p>
+                <p className="mt-2 leading-6">로그인 후에는 전국 읍면동 방문 기록과 사진을 바로 저장할 수 있습니다.</p>
               </div>
             </div>
           </section>

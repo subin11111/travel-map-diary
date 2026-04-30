@@ -21,6 +21,7 @@ type VisitStyle = {
 };
 
 type SelectedDong = {
+  // Legacy DB naming: dong_code/dong_name now store nationwide emd_code/emd_name.
   dongCode: string;
   dongName: string;
   visitCount: number;
@@ -38,6 +39,7 @@ type TimelineSort = "entry-desc" | "entry-asc" | "created-desc";
 
 type DongDiary = {
   id: string;
+  // Legacy DB naming: dong_code/dong_name now store nationwide emd_code/emd_name.
   dong_code: string;
   dong_name: string;
   title: string | null;
@@ -1342,7 +1344,7 @@ export default function NaverMap() {
     }
 
     if (!selectedDong) {
-      setStatusMessage("먼저 지도를 클릭해서 동을 선택하세요.");
+      setStatusMessage("먼저 지도를 클릭해서 지역을 선택하세요.");
       return;
     }
 
@@ -1476,7 +1478,7 @@ export default function NaverMap() {
         console.error("Error updating visit count:", e);
       }
 
-      setStatusMessage("동 일기와 사진이 저장되었습니다.");
+      setStatusMessage("지역 일기와 사진이 저장되었습니다.");
 
       setIsModalOpen(false);
     } catch (error) {
@@ -1585,7 +1587,7 @@ export default function NaverMap() {
 
   const visitBadgeItems = [
     {
-      label: "방문한 동",
+      label: "방문한 지역",
       value: `${visitStats.visitedDongCount}개`,
       toneClassName: "border-sky-200 bg-sky-50 text-sky-700",
       icon: (
@@ -1605,7 +1607,7 @@ export default function NaverMap() {
       ),
     },
     {
-      label: "가장 많이 간 동",
+      label: "가장 많이 간 지역",
       value: visitStats.topDongName ? `${visitStats.topDongName} · ${visitStats.topVisitCount}회` : "없음",
       toneClassName: "border-amber-200 bg-amber-50 text-amber-700",
       icon: (
@@ -1620,7 +1622,7 @@ export default function NaverMap() {
   const sharedMaps = maps.filter((map) => map.role !== "owner");
   const visitedRatio =
     totalDongCount > 0 ? Math.round((visitStats.visitedDongCount / totalDongCount) * 100) : 0;
-  const mapTitle = currentMap?.title ?? (isLoadingMaps ? "지도 불러오는 중" : "서울 동 단위 여행 일기");
+  const mapTitle = currentMap?.title ?? (isLoadingMaps ? "지도 불러오는 중" : "전국 읍면동 여행 일기");
   const drawerTabs: { id: DrawerTab; label: string }[] = [
     { id: "map", label: "지도" },
     { id: "settings", label: "설정" },
@@ -1680,7 +1682,7 @@ export default function NaverMap() {
         <div className="fixed left-0 top-0 z-50 flex h-full w-full items-center justify-center bg-black/50 p-4">
           <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-6">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">{selectedDong.dongName}에 일기 추가</h3>
+              <h3 className="text-lg font-semibold">{selectedDong.dongName}에 지역 일기 추가</h3>
               <button
                 onClick={closeModal}
                 className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700"
@@ -1707,7 +1709,7 @@ export default function NaverMap() {
               <textarea
                 value={diaryContent}
                 onChange={(e) => setDiaryContent(e.target.value)}
-                placeholder="이 동에서 어떤 하루를 보냈는지 적어보세요."
+                placeholder="이 지역에서 어떤 하루를 보냈는지 적어보세요."
                 rows={6}
                 className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-500 focus:border-sky-500"
               />
@@ -1967,7 +1969,7 @@ export default function NaverMap() {
                     </p>
                     <p className="mt-2 text-2xl font-semibold">{visitedRatio}%</p>
                     <p className="mt-1 text-sm text-slate-300">
-                      전체 {totalDongCount}개 동 중 {visitStats.visitedDongCount}개 방문
+                      전체 {totalDongCount}개 읍면동 중 {visitStats.visitedDongCount}개 지역 방문
                     </p>
                   </div>
                 </div>
@@ -1976,10 +1978,10 @@ export default function NaverMap() {
               {activeDrawerTab === "status" ? (
                 <div className="space-y-3">
                   {[
-                    ["방문 전", "#E5E7EB", "아직 기록이 없는 동입니다."],
-                    ["방문 있음", "#22C55E", "방문 기록이 있는 동입니다."],
-                    ["통계 상위 동", "#F59E0B", visitStats.topDongName ? `${visitStats.topDongName} · ${visitStats.topVisitCount}회` : "아직 상위 동이 없습니다."],
-                    ["선택된 동", "#BDE8F5", selectedDong ? selectedDong.dongName : "아직 선택된 동이 없습니다."],
+                    ["방문 전 지역", "#E5E7EB", "아직 기록이 없는 읍면동입니다."],
+                    ["방문 지역", "#22C55E", "방문 기록이 있는 읍면동입니다."],
+                    ["통계 상위 지역", "#F59E0B", visitStats.topDongName ? `${visitStats.topDongName} · ${visitStats.topVisitCount}회` : "아직 상위 지역이 없습니다."],
+                    ["선택된 지역", "#BDE8F5", selectedDong ? selectedDong.dongName : "아직 선택된 지역이 없습니다."],
                   ].map(([label, color, detail]) => (
                     <div key={label} className="flex items-center gap-3 rounded-[24px] border border-white/10 bg-white/5 p-4">
                       <span className="h-4 w-4 rounded-full border border-white/50" style={{ backgroundColor: color }} />
@@ -2006,7 +2008,7 @@ export default function NaverMap() {
                   <input
                     value={recordSearch}
                     onChange={(event) => setRecordSearch(event.target.value)}
-                    placeholder="동 이름으로 검색"
+                    placeholder="읍면동명으로 검색"
                     className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-300"
                   />
                   {isLoadingAllDiaries ? (
@@ -2091,7 +2093,7 @@ export default function NaverMap() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-300">
-                    선택된 동
+                    선택된 지역
                   </p>
                   <h2 className="mt-1 text-xl font-semibold">{selectedDong.dongName}</h2>
                   <p className="mt-1 text-sm text-slate-300">방문 {selectedDongVisitCount}회</p>
@@ -2172,7 +2174,7 @@ export default function NaverMap() {
                 Travel Map Diary
               </p>
               <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">
-                {currentMap ? currentMap.title : "서울 동 단위 여행 일기"}
+                {currentMap ? currentMap.title : "전국 읍면동 여행 일기"}
               </h1>
             </div>
             <div className="flex min-w-0 flex-col gap-2 xl:flex-row xl:flex-wrap xl:items-center xl:justify-end">
@@ -2237,7 +2239,7 @@ export default function NaverMap() {
             </div>
             <div className="pointer-events-none absolute left-3 top-3 z-20 flex max-w-[calc(100%-1.5rem)] flex-col gap-2 sm:left-4 sm:top-4 sm:max-w-[360px]">
               <div className="hidden rounded-2xl border border-white/70 bg-white/90 px-4 py-3 text-sm font-medium text-slate-800 shadow-lg backdrop-blur sm:block">
-                {hoveredDongName ? `현재 보기: ${hoveredDongName}` : "동 위에 마우스를 올리면 이름이 표시됩니다."}
+                {hoveredDongName ? `현재 보기: ${hoveredDongName}` : "지역 위에 마우스를 올리면 읍면동명이 표시됩니다."}
               </div>
 
               {statusMessage ? (
