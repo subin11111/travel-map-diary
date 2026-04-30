@@ -165,10 +165,10 @@ const REGION_VISIT_COLORS = {
   },
   one: {
     fillColor: "#BDE8F5",
-    strokeColor: "#4988C4",
+    strokeColor: "#7DB8D1",
     fillOpacity: 0.35,
-    strokeOpacity: 0.82,
-    strokeWeight: 0.85,
+    strokeOpacity: 0.48,
+    strokeWeight: 0.55,
   },
   twoToThree: {
     fillColor: "#4988C4",
@@ -2946,9 +2946,13 @@ export default function NaverMap() {
                 }}
               />
             </div>
-            <div className="pointer-events-none absolute left-3 top-3 z-20 flex max-w-[calc(100%-1.5rem)] flex-col gap-2 sm:left-4 sm:top-4 sm:max-w-[360px]">
-              <div className="hidden rounded-2xl border border-white/70 bg-white/90 px-4 py-3 text-sm font-medium text-slate-800 shadow-lg backdrop-blur sm:block">
-                {hoveredDongName ? `현재 보기: ${hoveredDongName}` : "지역 위에 마우스를 올리면 읍면동명이 표시됩니다."}
+            <div className="pointer-events-none absolute left-3 top-3 z-30 flex max-w-[calc(100%-1.5rem)] flex-col gap-2 sm:left-4 sm:top-4 sm:max-w-[360px]">
+              <div className="rounded-2xl border border-white/70 bg-white/90 px-3 py-2 text-xs font-medium text-slate-800 shadow-lg backdrop-blur sm:px-4 sm:py-3 sm:text-sm">
+                {hoveredDongName
+                  ? `현재 보기: ${hoveredDongName}`
+                  : selectedDong
+                    ? `선택된 지역: ${selectedDong.regionLabel}`
+                    : "지역을 선택하면 읍면동명이 표시됩니다."}
               </div>
 
               {statusMessage ? (
