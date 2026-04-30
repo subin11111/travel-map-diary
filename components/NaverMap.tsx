@@ -113,7 +113,6 @@ type NaverWindow = Window & {
 
 const EUPMYEONDONG_GEOJSON_PATH = "/geo/eupmyeondong.geojson";
 const INITIAL_RENDER_EMD_PREFIX = "11";
-const DEBUG_BOUNDARY_RENDERING = process.env.NODE_ENV !== "production";
 const DEBUG_FIT_BOUNDS_TO_BOUNDARY = process.env.NODE_ENV !== "production";
 
 type BoundaryBounds = {
@@ -150,25 +149,13 @@ function getFirstGeoJsonCoordinate(feature: GeoJsonFeature) {
 function getDongColorByVisitCount(visitCount: number) {
   if (visitCount <= 0) {
     return {
-      fillColor: "#BDE8F5",
-      strokeColor: "#1C4D8D",
-      fillOpacity: 0.3,
+      fillColor: "#E5E7EB",
+      strokeColor: "#9CA3AF",
+      fillOpacity: 0.22,
     };
   }
 
-  if (visitCount >= 7) {
-    return { fillColor: "#0F2854", strokeColor: "#0F2854", fillOpacity: 0.65 };
-  }
-
-  if (visitCount >= 4) {
-    return { fillColor: "#1C4D8D", strokeColor: "#0F2854", fillOpacity: 0.55 };
-  }
-
-  if (visitCount >= 2) {
-    return { fillColor: "#4988C4", strokeColor: "#1C4D8D", fillOpacity: 0.45 };
-  }
-
-  return { fillColor: "#BDE8F5", strokeColor: "#4988C4", fillOpacity: 0.35 };
+  return { fillColor: "#22C55E", strokeColor: "#15803D", fillOpacity: 0.42 };
 }
 
 function getVisitStyle(count: number): VisitStyle {
@@ -181,22 +168,18 @@ function getVisitStyle(count: number): VisitStyle {
   };
 }
 
-function getBoundaryRenderStyle(count: number): VisitStyle {
-  if (DEBUG_BOUNDARY_RENDERING) {
-    return {
-      fillColor: "#1C4D8D",
-      fillOpacity: 0.45,
-      strokeColor: "#0F2854",
-      strokeOpacity: 1,
-      strokeWeight: 2,
-    };
-  }
-
-  return getVisitStyle(count);
+function getTopStatDongStyle(): VisitStyle {
+  return {
+    fillColor: "#F59E0B",
+    fillOpacity: 0.5,
+    strokeColor: "#B45309",
+    strokeOpacity: 0.95,
+    strokeWeight: 2,
+  };
 }
 
 function getHoverVisitStyle(count: number): VisitStyle {
-  const baseStyle = getBoundaryRenderStyle(count);
+  const baseStyle = getVisitStyle(count);
 
   return {
     ...baseStyle,
@@ -281,6 +264,7 @@ export default function NaverMap() {
   const polygonGroupsRef = useRef(new Map<string, NaverPolygonInstance[]>());
   const visitCountByDongRef = useRef(new Map<string, number>());
   const dongNameByCodeRef = useRef(new Map<string, string>());
+  const topStatDongCodesRef = useRef(new Set<string>());
   const selectedDongCodeRef = useRef<string | null>(null);
   const authUserRef = useRef<User | null>(null);
   const currentMapRef = useRef<TravelMap | null>(null);
@@ -375,11 +359,12 @@ export default function NaverMap() {
   const restyleDong = useCallback((dongCode: string) => {
     const count = visitCountByDongRef.current.get(dongCode) ?? 0;
     const isSelected = selectedDongCodeRef.current === dongCode;
+    const isTopStat = topStatDongCodesRef.current.has(dongCode);
 
     applyPolygonStyle(
       dongCode,
-      isSelected ? getSelectedDongStyle() : getBoundaryRenderStyle(count),
-      isSelected ? 300 : count > 0 ? 100 : 10
+      isSelected ? getSelectedDongStyle() : isTopStat ? getTopStatDongStyle() : getVisitStyle(count),
+      isSelected ? 300 : isTopStat ? 180 : count > 0 ? 100 : 10
     );
   }, [applyPolygonStyle]);
 
@@ -394,10 +379,11 @@ export default function NaverMap() {
   const resetUserScopedMapState = useCallback(() => {
     visitCountByDongRef.current.clear();
     dongNameByCodeRef.current.clear();
+    topStatDongCodesRef.current.clear();
     selectedDongCodeRef.current = null;
 
     polygonGroupsRef.current.forEach((_, dongCode) => {
-      applyPolygonStyle(dongCode, getBoundaryRenderStyle(0), 10);
+      applyPolygonStyle(dongCode, getVisitStyle(0), 10);
     });
 
     setVisitStats({
@@ -495,12 +481,22 @@ export default function NaverMap() {
       (top, entry) => (entry[1] > (top?.[1] ?? 0) ? entry : top),
       null
     );
+    const topVisitCount = topVisitEntry?.[1] ?? 0;
+
+    topStatDongCodesRef.current =
+      topVisitCount > 0
+        ? new Set(
+            visitEntries
+              .filter(([, count]) => count === topVisitCount)
+              .map(([dongCode]) => dongCode)
+          )
+        : new Set<string>();
 
     setVisitStats({
       visitedDongCount,
       totalVisitCount,
       topDongName: topVisitEntry ? dongNameMap.get(topVisitEntry[0]) ?? null : null,
-      topVisitCount: topVisitEntry?.[1] ?? 0,
+      topVisitCount,
     });
 
     polygonGroupsRef.current.forEach((_, dongCode) => {
@@ -781,8 +777,10 @@ export default function NaverMap() {
           map,
           paths,
           clickable: true,
-          zIndex: DEBUG_BOUNDARY_RENDERING ? 100 : initialVisitCount > 0 ? 100 : 10,
-          ...getBoundaryRenderStyle(initialVisitCount),
+          zIndex: topStatDongCodesRef.current.has(dongCode) ? 180 : initialVisitCount > 0 ? 100 : 10,
+          ...(topStatDongCodesRef.current.has(dongCode)
+            ? getTopStatDongStyle()
+            : getVisitStyle(initialVisitCount)),
         });
 
         const existingGroup = polygonGroupsRef.current.get(dongCode) ?? [];
@@ -792,12 +790,13 @@ export default function NaverMap() {
         naverApi.maps.Event.addListener(polygon, "mouseover", () => {
           const currentVisitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
           const isSelected = selectedDongCodeRef.current === dongCode;
+          const isTopStat = topStatDongCodesRef.current.has(dongCode);
           setHoverLabel(dongName);
 
           if (!isSelected) {
             polygon.setOptions({
-              ...getHoverVisitStyle(currentVisitCount),
-              zIndex: currentVisitCount > 0 ? 150 : 60,
+              ...(isTopStat ? getTopStatDongStyle() : getHoverVisitStyle(currentVisitCount)),
+              zIndex: isTopStat ? 180 : currentVisitCount > 0 ? 150 : 60,
             });
           }
         });
@@ -811,9 +810,10 @@ export default function NaverMap() {
           }
 
           const currentVisitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
+          const isTopStat = topStatDongCodesRef.current.has(dongCode);
           polygon.setOptions({
-            ...getBoundaryRenderStyle(currentVisitCount),
-            zIndex: currentVisitCount > 0 ? 100 : 10,
+            ...(isTopStat ? getTopStatDongStyle() : getVisitStyle(currentVisitCount)),
+            zIndex: isTopStat ? 180 : currentVisitCount > 0 ? 100 : 10,
           });
         });
 
@@ -980,20 +980,34 @@ export default function NaverMap() {
           });
           restyleDong(selectedDong!.dongCode);
           setVisitStats(() => {
-            const nextVisitedDongCount = visitCountByDongRef.current.size;
-            const nextTotalVisitCount = Array.from(visitCountByDongRef.current.values()).reduce(
-              (sum, value) => sum + value,
+            const visitEntries = Array.from(visitCountByDongRef.current.entries());
+            const nextVisitedDongCount = visitEntries.filter(([, count]) => count > 0).length;
+            const nextTotalVisitCount = visitEntries.reduce(
+              (sum, [, count]) => sum + count,
               0
             );
 
             let topDongCode: string | null = null;
             let nextTopVisitCount = 0;
 
-            visitCountByDongRef.current.forEach((count, dongCode) => {
+            visitEntries.forEach(([dongCode, count]) => {
               if (count > nextTopVisitCount) {
                 nextTopVisitCount = count;
                 topDongCode = dongCode;
               }
+            });
+
+            topStatDongCodesRef.current =
+              nextTopVisitCount > 0
+                ? new Set(
+                    visitEntries
+                      .filter(([, count]) => count === nextTopVisitCount)
+                      .map(([dongCode]) => dongCode)
+                  )
+                : new Set<string>();
+
+            polygonGroupsRef.current.forEach((_, dongCode) => {
+              restyleDong(dongCode);
             });
 
             return {
@@ -1508,11 +1522,9 @@ export default function NaverMap() {
               {activeDrawerTab === "status" ? (
                 <div className="space-y-3">
                   {[
-                    ["방문 전", "#BDE8F5", "아직 기록이 없는 동입니다."],
-                    ["1회 방문", "#BDE8F5", "한 번 방문한 동입니다."],
-                    ["2~3회 방문", "#4988C4", "여러 번 방문한 동입니다."],
-                    ["4~6회 방문", "#1C4D8D", "방문 횟수가 높은 동입니다."],
-                    ["7회 이상 방문", "#0F2854", "방문 횟수가 매우 높은 동입니다."],
+                    ["방문 전", "#E5E7EB", "아직 기록이 없는 동입니다."],
+                    ["방문 있음", "#22C55E", "방문 기록이 있는 동입니다."],
+                    ["통계 상위 동", "#F59E0B", visitStats.topDongName ? `${visitStats.topDongName} · ${visitStats.topVisitCount}회` : "아직 상위 동이 없습니다."],
                     ["선택된 동", "#BDE8F5", selectedDong ? selectedDong.dongName : "아직 선택된 동이 없습니다."],
                   ].map(([label, color, detail]) => (
                     <div key={label} className="flex items-center gap-3 rounded-[24px] border border-white/10 bg-white/5 p-4">
@@ -1765,24 +1777,16 @@ export default function NaverMap() {
                 </div>
                 <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-1">
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-[#1C4D8D] bg-[#BDE8F5]" />
+                    <span className="h-2 w-2 rounded-full border border-[#9CA3AF] bg-[#E5E7EB]" />
                     방문 전
                   </div>
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-[#4988C4] bg-[#BDE8F5]" />
-                    1회
+                    <span className="h-2 w-2 rounded-full border border-[#15803D] bg-[#22C55E]" />
+                    방문 있음
                   </div>
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-[#1C4D8D] bg-[#4988C4]" />
-                    2~3회
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-[#0F2854] bg-[#1C4D8D]" />
-                    4~6회
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-[#0F2854] bg-[#0F2854]" />
-                    7회+
+                    <span className="h-2 w-2 rounded-full border border-[#B45309] bg-[#F59E0B]" />
+                    통계 상위
                   </div>
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
                     <span className="h-2 w-2 rounded-full border-2 border-[#0F2854] bg-[#BDE8F5]" />
