@@ -103,11 +103,14 @@ const EUPMYEONDONG_LINE_LAYER_ID = "eupmyeondong-line";
 const NATIONAL_EUPMYEONDONG_COUNT = 5028;
 const KOREA_CENTER: [number, number] = [127.8, 36.3];
 const NAVER_INITIAL_ZOOM = 7;
-const MAPLIBRE_ZOOM_OFFSET = -1;
+const MAPLIBRE_ZOOM_OFFSET = 0;
 const DEBUG_MAP_MODE = (process.env.NEXT_PUBLIC_DEBUG_MAP_MODE ?? "both") as
   | "naver-only"
   | "overlay-only"
   | "both";
+const DEBUG_BOUNDARY_STYLE = process.env.NEXT_PUBLIC_DEBUG_BOUNDARY_STYLE === "true";
+const DEBUG_FIXED_OVERLAY_VIEW = process.env.NEXT_PUBLIC_DEBUG_FIXED_OVERLAY_VIEW === "true";
+const DEBUG_OVERLAY_BACKGROUND = process.env.NEXT_PUBLIC_DEBUG_OVERLAY_BACKGROUND === "true";
 
 let isPmtilesProtocolRegistered = false;
 
@@ -115,12 +118,12 @@ function getDongColorByVisitCount(visitCount: number) {
   if (visitCount <= 0) {
     return {
       fillColor: "#E5E7EB",
-      strokeColor: "#0F172A",
-      fillOpacity: 0.18,
+      strokeColor: "#64748B",
+      fillOpacity: 0.28,
     };
   }
 
-  return { fillColor: "#22C55E", strokeColor: "#16A34A", fillOpacity: 0.45 };
+  return { fillColor: "#22C55E", strokeColor: "#15803D", fillOpacity: 0.5 };
 }
 
 function getVisitStyle(count: number): VisitStyle {
@@ -128,8 +131,8 @@ function getVisitStyle(count: number): VisitStyle {
 
   return {
     ...color,
-    strokeOpacity: count > 0 ? 0.76 : 0.35,
-    strokeWeight: 1,
+    strokeOpacity: 0.9,
+    strokeWeight: 0.8,
   };
 }
 
@@ -146,7 +149,7 @@ function getTopStatDongStyle(): VisitStyle {
 function getSelectedDongStyle(): VisitStyle {
   return {
     fillColor: "#60A5FA",
-    fillOpacity: 0.6,
+    fillOpacity: 0.65,
     strokeColor: "#2563EB",
     strokeOpacity: 1,
     strokeWeight: 2.5,
@@ -226,8 +229,54 @@ function buildVisitStrokeWidthExpression(selectedDongCode: string | null, topSta
     getSelectedDongStyle().strokeWeight,
     ["in", ["get", "emd_code"], ["literal", topStatDongCodes]],
     getTopStatDongStyle().strokeWeight,
-    1,
+    getVisitStyle(0).strokeWeight,
   ];
+}
+
+function getDebugBoundaryFillPaint() {
+  return {
+    "fill-color": "#ff0000",
+    "fill-opacity": 0.75,
+  };
+}
+
+function getDebugBoundaryLinePaint() {
+  return {
+    "line-color": "#000000",
+    "line-opacity": 1,
+    "line-width": 4,
+  };
+}
+
+function getVectorLayerId(metadata: unknown) {
+  const vectorLayers = (metadata as { vector_layers?: Array<{ id?: string }> })?.vector_layers;
+
+  return vectorLayers?.find((layer) => layer.id)?.id ?? null;
+}
+
+function getBoundsFromPmtilesMetadata(metadata: unknown) {
+  const bounds = (metadata as { bounds?: string })?.bounds;
+
+  if (!bounds) {
+    return null;
+  }
+
+  const values = bounds.split(",").map((value) => Number(value.trim()));
+
+  if (values.length !== 4 || values.some((value) => !Number.isFinite(value))) {
+    return null;
+  }
+
+  const [west, south, east, north] = values;
+
+  return [
+    [west, south],
+    [east, north],
+  ] as [[number, number], [number, number]];
+}
+
+function naverZoomToMapLibreZoom(naverZoom: number) {
+  return naverZoom + MAPLIBRE_ZOOM_OFFSET;
 }
 
 function formatDateTime(value: string) {
@@ -377,6 +426,35 @@ export default function NaverMap() {
       return;
     }
 
+    if (DEBUG_BOUNDARY_STYLE) {
+      map.setPaintProperty(
+        EUPMYEONDONG_FILL_LAYER_ID,
+        "fill-color",
+        getDebugBoundaryFillPaint()["fill-color"]
+      );
+      map.setPaintProperty(
+        EUPMYEONDONG_FILL_LAYER_ID,
+        "fill-opacity",
+        getDebugBoundaryFillPaint()["fill-opacity"]
+      );
+      map.setPaintProperty(
+        EUPMYEONDONG_LINE_LAYER_ID,
+        "line-color",
+        getDebugBoundaryLinePaint()["line-color"]
+      );
+      map.setPaintProperty(
+        EUPMYEONDONG_LINE_LAYER_ID,
+        "line-opacity",
+        getDebugBoundaryLinePaint()["line-opacity"]
+      );
+      map.setPaintProperty(
+        EUPMYEONDONG_LINE_LAYER_ID,
+        "line-width",
+        getDebugBoundaryLinePaint()["line-width"]
+      );
+      return;
+    }
+
     const visitedDongCodes = [...visitCountByDongRef.current.entries()]
       .filter(([, count]) => count > 0)
       .map(([dongCode]) => dongCode);
@@ -398,6 +476,7 @@ export default function NaverMap() {
       "line-color",
       buildVisitStrokeExpression(selectedDongCode, topStatDongCodes, visitedDongCodes)
     );
+    map.setPaintProperty(EUPMYEONDONG_LINE_LAYER_ID, "line-opacity", 0.9);
     map.setPaintProperty(
       EUPMYEONDONG_LINE_LAYER_ID,
       "line-width",
@@ -657,6 +736,7 @@ export default function NaverMap() {
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let resizeObserver: ResizeObserver | null = null;
+    let removeManualHitTest: (() => void) | null = null;
 
     function syncMapElementSizes() {
       const rootRect = mapRef.current?.getBoundingClientRect();
@@ -665,12 +745,71 @@ export default function NaverMap() {
         return null;
       }
 
-      [naverMapElementRef.current, overlayMapElementRef.current].forEach((element) => {
-        element.style.width = `${rootRect.width}px`;
-        element.style.height = `${rootRect.height}px`;
-      });
+      naverMapElementRef.current.style.position = "absolute";
+      naverMapElementRef.current.style.inset = "0";
+      naverMapElementRef.current.style.zIndex = "0";
+      naverMapElementRef.current.style.width = `${rootRect.width}px`;
+      naverMapElementRef.current.style.height = `${rootRect.height}px`;
+
+      overlayMapElementRef.current.style.position = "absolute";
+      overlayMapElementRef.current.style.inset = "0";
+      overlayMapElementRef.current.style.zIndex = "20";
+      overlayMapElementRef.current.style.background = DEBUG_OVERLAY_BACKGROUND
+        ? "rgba(255, 0, 0, 0.08)"
+        : "transparent";
+      overlayMapElementRef.current.style.pointerEvents = "auto";
+      overlayMapElementRef.current.style.opacity = "1";
+      overlayMapElementRef.current.style.visibility = "visible";
+      overlayMapElementRef.current.style.width = `${rootRect.width}px`;
+      overlayMapElementRef.current.style.height = `${rootRect.height}px`;
 
       return rootRect;
+    }
+
+    function forceMapLibreDomVisible(map: MapLibreMap) {
+      const elements = [map.getContainer(), map.getCanvasContainer(), map.getCanvas()];
+
+      elements.forEach((element) => {
+        element.style.background = "transparent";
+        element.style.opacity = "1";
+        element.style.pointerEvents = "auto";
+        element.style.visibility = "visible";
+      });
+    }
+
+    function logOverlayStacking(label: string, map: MapLibreMap) {
+      if (!overlayMapElementRef.current || !naverMapElementRef.current) {
+        return;
+      }
+
+      const overlayStyle = getComputedStyle(overlayMapElementRef.current);
+      const naverStyle = getComputedStyle(naverMapElementRef.current);
+      const canvas = map.getCanvas();
+      const canvasStyle = getComputedStyle(canvas);
+
+      console.info(label, {
+        overlay: {
+          rect: overlayMapElementRef.current.getBoundingClientRect(),
+          zIndex: overlayStyle.zIndex,
+          opacity: overlayStyle.opacity,
+          visibility: overlayStyle.visibility,
+          pointerEvents: overlayStyle.pointerEvents,
+        },
+        naver: {
+          rect: naverMapElementRef.current.getBoundingClientRect(),
+          zIndex: naverStyle.zIndex,
+          opacity: naverStyle.opacity,
+          visibility: naverStyle.visibility,
+          pointerEvents: naverStyle.pointerEvents,
+        },
+        canvas: {
+          rect: canvas.getBoundingClientRect(),
+          zIndex: canvasStyle.zIndex,
+          opacity: canvasStyle.opacity,
+          visibility: canvasStyle.visibility,
+          pointerEvents: canvasStyle.pointerEvents,
+        },
+      });
     }
 
     async function initializeVectorTileOverlay() {
@@ -712,7 +851,7 @@ export default function NaverMap() {
       mapInitializedRef.current = true;
 
       try {
-        const [{ default: maplibregl }, { Protocol }] = await Promise.all([
+        const [{ default: maplibregl }, { PMTiles, Protocol }] = await Promise.all([
           import("maplibre-gl"),
           import("pmtiles"),
         ]);
@@ -764,7 +903,7 @@ export default function NaverMap() {
             layers: [],
           },
           center: KOREA_CENTER,
-          zoom: NAVER_INITIAL_ZOOM + MAPLIBRE_ZOOM_OFFSET,
+          zoom: naverZoomToMapLibreZoom(NAVER_INITIAL_ZOOM),
           minZoom: 4,
           maxZoom: 16,
           interactive: true,
@@ -773,15 +912,24 @@ export default function NaverMap() {
         });
 
         mapLibreMapRef.current = overlayMap;
-        overlayMap.getContainer().style.background = "transparent";
-        overlayMap.getCanvas().style.background = "transparent";
+        syncMapElementSizes();
+        forceMapLibreDomVisible(overlayMap);
         overlayMap.dragPan.disable();
         overlayMap.scrollZoom.disable();
         overlayMap.boxZoom.disable();
         overlayMap.keyboard.disable();
         overlayMap.doubleClickZoom.disable();
         overlayMap.touchZoomRotate.disable();
-        overlayMap.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
+        console.info("[Overlay] rect", overlayMapElementRef.current.getBoundingClientRect());
+        console.info("[MapLibre] canvas", overlayMap.getCanvas().getBoundingClientRect());
+        logOverlayStacking("[MapLibre canvas style]", overlayMap);
+        overlayMap.resize();
+        window.setTimeout(() => {
+          forceMapLibreDomVisible(overlayMap);
+          overlayMap.resize();
+          console.info("[MapLibre] canvas after resize", overlayMap.getCanvas().getBoundingClientRect());
+          logOverlayStacking("[MapLibre canvas style after resize]", overlayMap);
+        }, 300);
 
         function syncOverlayFromNaver() {
           if (syncingFromOverlayRef.current || !mapLibreMapRef.current || !naverMapRef.current) {
@@ -793,8 +941,8 @@ export default function NaverMap() {
           const naverCenter: [number, number] = [center.lng(), center.lat()];
           const naverZoom = naverMapRef.current.getZoom();
           mapLibreMapRef.current.jumpTo({
-            center: naverCenter,
-            zoom: naverZoom + MAPLIBRE_ZOOM_OFFSET,
+            center: DEBUG_FIXED_OVERLAY_VIEW ? [126.978, 37.5665] : naverCenter,
+            zoom: DEBUG_FIXED_OVERLAY_VIEW ? 10 : naverZoomToMapLibreZoom(naverZoom),
           });
           console.info("[MapSync]", {
             source: "naver",
@@ -850,6 +998,9 @@ export default function NaverMap() {
             return;
           }
 
+          let boundarySourceLayer = EUPMYEONDONG_SOURCE_LAYER;
+          let metadataBounds: [[number, number], [number, number]] | null = null;
+
           try {
             const tileCheck = await fetch(EUPMYEONDONG_PMTILES_PATH, { method: "HEAD" });
 
@@ -862,15 +1013,73 @@ export default function NaverMap() {
               setStatusMessage("전국 지도 타일 파일을 불러오지 못했습니다. public/tiles/eupmyeondong.pmtiles 파일을 확인해 주세요.");
               return;
             }
+
+            const pmtiles = new PMTiles(EUPMYEONDONG_PMTILES_PATH);
+            const header = await pmtiles.getHeader();
+            const metadata = await pmtiles.getMetadata();
+            const metadataLayerId = getVectorLayerId(metadata);
+            metadataBounds = getBoundsFromPmtilesMetadata(metadata);
+
+            console.info("[PMTiles] header", header);
+            console.info("[PMTiles] metadata", metadata);
+
+            if (metadataLayerId && metadataLayerId !== EUPMYEONDONG_SOURCE_LAYER) {
+              console.warn("[PMTiles] source-layer mismatch; using metadata layer id.", {
+                configured: EUPMYEONDONG_SOURCE_LAYER,
+                actual: metadataLayerId,
+              });
+              boundarySourceLayer = metadataLayerId;
+            }
           } catch (error) {
             console.warn("PMTiles availability check failed.", error);
             setStatusMessage("전국 지도 타일 파일을 불러오지 못했습니다. public/tiles/eupmyeondong.pmtiles 파일을 확인해 주세요.");
             return;
           }
 
+          let hasLoggedSourceData = false;
+          let hasLoggedIdle = false;
+
+          overlayMap.on(
+            "sourcedata",
+            (event: { sourceId?: string; isSourceLoaded?: boolean; sourceDataType?: string }) => {
+              if (event.sourceId !== EUPMYEONDONG_SOURCE_ID || hasLoggedSourceData) {
+                return;
+              }
+
+              hasLoggedSourceData = true;
+              console.info("[MapLibre] sourcedata", {
+                sourceId: event.sourceId,
+                isSourceLoaded: event.isSourceLoaded,
+                sourceDataType: event.sourceDataType,
+              });
+            }
+          );
+
+          overlayMap.on("idle", () => {
+            if (hasLoggedIdle) {
+              return;
+            }
+
+            hasLoggedIdle = true;
+            const renderedFeatures = overlayMap.queryRenderedFeatures({
+              layers: [EUPMYEONDONG_FILL_LAYER_ID],
+            });
+            const sourceFeatures = overlayMap.querySourceFeatures(EUPMYEONDONG_SOURCE_ID, {
+              sourceLayer: boundarySourceLayer,
+            });
+            console.info("[MapLibre] idle", {
+              zoom: overlayMap.getZoom(),
+              center: overlayMap.getCenter().toArray(),
+              sourceLoaded: overlayMap.isSourceLoaded(EUPMYEONDONG_SOURCE_ID),
+              renderedFeatures: renderedFeatures.length,
+              sourceFeatures: sourceFeatures.length,
+            });
+          });
+
           overlayMap.addSource(EUPMYEONDONG_SOURCE_ID, {
             type: "vector",
             url: `pmtiles://${EUPMYEONDONG_PMTILES_PATH}`,
+            minzoom: 0,
             maxzoom: 5,
             attribution: "NGII eupmyeondong boundaries",
           });
@@ -879,37 +1088,115 @@ export default function NaverMap() {
             id: EUPMYEONDONG_FILL_LAYER_ID,
             type: "fill",
             source: EUPMYEONDONG_SOURCE_ID,
-            "source-layer": EUPMYEONDONG_SOURCE_LAYER,
-            paint: {
-              "fill-color": getVisitStyle(0).fillColor,
-              "fill-opacity": getVisitStyle(0).fillOpacity,
-            },
+            "source-layer": boundarySourceLayer,
+            minzoom: 0,
+            maxzoom: 22,
+            paint: DEBUG_BOUNDARY_STYLE
+              ? getDebugBoundaryFillPaint()
+              : {
+                  "fill-color": getVisitStyle(0).fillColor,
+                  "fill-opacity": getVisitStyle(0).fillOpacity,
+                },
           });
 
           overlayMap.addLayer({
             id: EUPMYEONDONG_LINE_LAYER_ID,
             type: "line",
             source: EUPMYEONDONG_SOURCE_ID,
-            "source-layer": EUPMYEONDONG_SOURCE_LAYER,
-            paint: {
-              "line-color": getVisitStyle(0).strokeColor,
-              "line-opacity": 0.8,
-              "line-width": 0.7,
-            },
+            "source-layer": boundarySourceLayer,
+            minzoom: 0,
+            maxzoom: 22,
+            paint: DEBUG_BOUNDARY_STYLE
+              ? getDebugBoundaryLinePaint()
+              : {
+                  "line-color": getVisitStyle(0).strokeColor,
+                  "line-opacity": getVisitStyle(0).strokeOpacity,
+                  "line-width": getVisitStyle(0).strokeWeight,
+                },
           });
 
           setTotalDongCount(NATIONAL_EUPMYEONDONG_COUNT);
+          forceMapLibreDomVisible(overlayMap);
+          overlayMap.resize();
           updateBoundaryLayerStyles();
+          console.info("[MapLibre paint]", {
+            fillLayer: overlayMap.getLayer(EUPMYEONDONG_FILL_LAYER_ID),
+            lineLayer: overlayMap.getLayer(EUPMYEONDONG_LINE_LAYER_ID),
+            fillColor: overlayMap.getPaintProperty(EUPMYEONDONG_FILL_LAYER_ID, "fill-color"),
+            fillOpacity: overlayMap.getPaintProperty(EUPMYEONDONG_FILL_LAYER_ID, "fill-opacity"),
+            lineColor: overlayMap.getPaintProperty(EUPMYEONDONG_LINE_LAYER_ID, "line-color"),
+            lineOpacity: overlayMap.getPaintProperty(EUPMYEONDONG_LINE_LAYER_ID, "line-opacity"),
+            lineWidth: overlayMap.getPaintProperty(EUPMYEONDONG_LINE_LAYER_ID, "line-width"),
+          });
+          logOverlayStacking("[MapLibre canvas style after layers]", overlayMap);
+          window.setTimeout(() => {
+            forceMapLibreDomVisible(overlayMap);
+            overlayMap.resize();
+          }, 300);
+          window.setTimeout(() => {
+            const renderedFeatures = overlayMap.queryRenderedFeatures({
+              layers: [EUPMYEONDONG_FILL_LAYER_ID],
+            });
+            const sourceFeatures = overlayMap.querySourceFeatures(EUPMYEONDONG_SOURCE_ID, {
+              sourceLayer: boundarySourceLayer,
+            });
+
+            console.info("[MapLibre] feature check", {
+              renderedFeatures: renderedFeatures.length,
+              sourceFeatures: sourceFeatures.length,
+              zoom: overlayMap.getZoom(),
+              center: overlayMap.getCenter().toArray(),
+              bounds: overlayMap.getBounds().toArray(),
+            });
+          }, 1000);
+
+          if (DEBUG_FIXED_OVERLAY_VIEW) {
+            overlayMap.jumpTo({ center: [126.978, 37.5665], zoom: 10 });
+          } else if (metadataBounds && DEBUG_BOUNDARY_STYLE) {
+            overlayMap.fitBounds(metadataBounds, { duration: 0, padding: 20 });
+          }
 
           console.info("PMTiles overlay layer initialized on Naver map.", {
             path: EUPMYEONDONG_PMTILES_PATH,
             sourceId: EUPMYEONDONG_SOURCE_ID,
-            sourceLayer: EUPMYEONDONG_SOURCE_LAYER,
+            sourceLayer: boundarySourceLayer,
             expectedFeatureCount: NATIONAL_EUPMYEONDONG_COUNT,
             visitedCodes: visitCountByDongRef.current.size,
+            debugBoundaryStyle: DEBUG_BOUNDARY_STYLE,
+            debugFixedOverlayView: DEBUG_FIXED_OVERLAY_VIEW,
           });
 
+          if (overlayMapElementRef.current) {
+            let lastManualHitLogTime = 0;
+            const manualHitTestElement = overlayMapElementRef.current;
+            const handleManualHitTest = (event: MouseEvent) => {
+              const now = Date.now();
+
+              if (now - lastManualHitLogTime < 500) {
+                return;
+              }
+
+              lastManualHitLogTime = now;
+              const rect = manualHitTestElement.getBoundingClientRect();
+              const point: [number, number] = [
+                event.clientX - rect.left,
+                event.clientY - rect.top,
+              ];
+              const features = overlayMap.queryRenderedFeatures(point, {
+                layers: [EUPMYEONDONG_FILL_LAYER_ID],
+              });
+
+              console.info("[Manual hit test]", features.length, features[0]?.properties);
+            };
+
+            manualHitTestElement.addEventListener("mousemove", handleManualHitTest);
+            removeManualHitTest = () => {
+              manualHitTestElement.removeEventListener("mousemove", handleManualHitTest);
+            };
+          }
+
           overlayMap.on("mousemove", EUPMYEONDONG_FILL_LAYER_ID, (event: MapLayerMouseEvent) => {
+            console.info("[Boundary hover]", event.features?.[0]?.properties);
             const properties = getBoundaryFeatureProperties(event.features?.[0] as BoundaryFeature);
             setHoverLabel(properties?.dongName ?? null);
             overlayMap.getCanvas().style.cursor = properties ? "pointer" : "";
@@ -921,6 +1208,7 @@ export default function NaverMap() {
           });
 
           overlayMap.on("click", EUPMYEONDONG_FILL_LAYER_ID, (event: MapLayerMouseEvent) => {
+            console.info("[Boundary click]", event.features?.[0]?.properties);
             const properties = getBoundaryFeatureProperties(event.features?.[0] as BoundaryFeature);
 
             if (!properties) {
@@ -975,6 +1263,8 @@ export default function NaverMap() {
       if (retryTimer) {
         clearTimeout(retryTimer);
       }
+      removeManualHitTest?.();
+      removeManualHitTest = null;
       resizeObserver?.disconnect();
       mapLibreMapRef.current?.remove();
       mapLibreMapRef.current = null;
@@ -1874,14 +2164,24 @@ export default function NaverMap() {
               <div
                 ref={naverMapElementRef}
                 className={`absolute inset-0 z-0 ${DEBUG_MAP_MODE === "overlay-only" ? "opacity-0" : ""}`}
-                style={{ height: "100%", width: "100%" }}
+                style={{ height: "100%", inset: 0, position: "absolute", width: "100%", zIndex: 0 }}
               />
               <div
                 ref={overlayMapElementRef}
-                className={`maplibre-gl-transparent absolute inset-0 z-10 bg-transparent ${
+                className={`maplibre-gl-transparent pointer-events-auto absolute inset-0 z-20 ${
                   DEBUG_MAP_MODE === "naver-only" ? "hidden" : ""
                 }`}
-                style={{ height: "100%", width: "100%" }}
+                style={{
+                  background: DEBUG_OVERLAY_BACKGROUND ? "rgba(255, 0, 0, 0.08)" : "transparent",
+                  height: "100%",
+                  inset: 0,
+                  opacity: 1,
+                  pointerEvents: "auto",
+                  position: "absolute",
+                  visibility: "visible",
+                  width: "100%",
+                  zIndex: 20,
+                }}
               />
             </div>
             <div className="pointer-events-none absolute left-3 top-3 z-20 flex max-w-[calc(100%-1.5rem)] flex-col gap-2 sm:left-4 sm:top-4 sm:max-w-[360px]">

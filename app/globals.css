@@ -38,4 +38,7 @@ img {
 .maplibre-gl-transparent .maplibregl-canvas,
 .maplibre-gl-transparent .maplibregl-canvas-container {
   background: transparent !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  visibility: visible !important;
 }
