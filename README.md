@@ -250,3 +250,14 @@ npm run db:push
 - `20260430010400_enable_rls_and_policies.sql`: RLS, 정책, helper function, 지도 생성 RPC 정리
 
 자세한 사용 순서는 [supabase/README.md](./supabase/README.md)를 참고하세요.
+
+## 지도 데이터 파일 정책
+
+전국 읍면동 원본 CSV, UTF-8 전처리 CSV, 변환 중간 산출물은 용량이 크기 때문에 Git에 포함하지 않습니다. 필요한 원본 데이터는 별도로 다운로드한 뒤 로컬에서 변환 스크립트로 다시 생성합니다.
+
+- 원본 CSV: Git 제외
+- 전처리 CSV: Git 제외
+- `public/data/*.geojson`: 대용량 전국 GeoJSON 산출물은 Git 제외
+- 앱에 포함해야 하는 작은 샘플/기본 경계 데이터만 별도로 검토 후 커밋
+
+데이터를 다시 만들 때는 `tmd_preprocess` 또는 `scripts`의 변환 스크립트를 사용해 로컬에서 CSV를 전처리하고 GeoJSON을 생성하세요.
