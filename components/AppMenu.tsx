@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
+import { isRecoverableAuthError } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 
 type AppMenuProps = {
@@ -24,10 +25,28 @@ export default function AppMenu({ compact = false }: AppMenuProps) {
     let cancelled = false;
 
     async function loadSession() {
-      const { data } = await supabase.auth.getSession();
+      try {
+        const { data } = await supabase.auth.getSession();
 
-      if (!cancelled) {
-        setAuthUser(data.session?.user ?? null);
+        if (!cancelled) {
+          setAuthUser(data.session?.user ?? null);
+        }
+      } catch (error) {
+        if (isRecoverableAuthError(error)) {
+          console.warn("Recoverable auth session error in menu. Resetting local session.", error);
+          try {
+            await supabase.auth.signOut({ scope: "local" });
+          } catch (signOutError) {
+            console.warn("Menu local auth session reset failed:", signOutError);
+          }
+
+          if (!cancelled) {
+            setAuthUser(null);
+          }
+          return;
+        }
+
+        console.warn("Failed to load menu auth session:", error);
       }
     }
 
@@ -55,7 +74,7 @@ export default function AppMenu({ compact = false }: AppMenuProps) {
       router.replace("/login");
       router.refresh();
     } catch (error) {
-      console.error("Logout failed:", error);
+      console.warn("Logout failed:", error);
     } finally {
       setIsSigningOut(false);
     }

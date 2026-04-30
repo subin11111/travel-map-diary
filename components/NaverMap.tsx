@@ -51,8 +51,10 @@ type MultiPolygonCoordinates = number[][][][];
 
 type GeoJsonFeature = {
   properties: {
-    EMD_CD: string;
-    EMD_NM: string;
+    emd_code?: string;
+    emd_name?: string;
+    EMD_CD?: string;
+    EMD_NM?: string;
   };
   geometry:
     | {
@@ -73,6 +75,10 @@ type NaverPolygonInstance = {
   setOptions: (options: VisitStyle & { zIndex: number }) => void;
 };
 
+type NaverMapInstance = {
+  fitBounds: (bounds: unknown) => void;
+};
+
 type NaverMapApi = {
   maps: {
     Map: new (
@@ -82,11 +88,12 @@ type NaverMapApi = {
         zoom: number;
         disableDoubleClickZoom: boolean;
       }
-    ) => unknown;
+    ) => NaverMapInstance;
     LatLng: new (lat: number, lng: number) => unknown;
+    LatLngBounds: new (sw: unknown, ne: unknown) => unknown;
     Polygon: new (options: {
       map: unknown;
-      paths: unknown[];
+      paths: unknown[] | unknown[][];
       clickable: boolean;
       zIndex: number;
     } & VisitStyle) => NaverPolygonInstance;
@@ -104,12 +111,48 @@ type NaverWindow = Window & {
   naver?: NaverMapApi;
 };
 
+const EUPMYEONDONG_GEOJSON_PATH = "/geo/eupmyeondong.geojson";
+const INITIAL_RENDER_EMD_PREFIX = "11";
+const DEBUG_BOUNDARY_RENDERING = process.env.NODE_ENV !== "production";
+const DEBUG_FIT_BOUNDS_TO_BOUNDARY = process.env.NODE_ENV !== "production";
+
+type BoundaryBounds = {
+  minLng: number;
+  maxLng: number;
+  minLat: number;
+  maxLat: number;
+};
+
+function createEmptyBoundaryBounds(): BoundaryBounds {
+  return {
+    minLng: Number.POSITIVE_INFINITY,
+    maxLng: Number.NEGATIVE_INFINITY,
+    minLat: Number.POSITIVE_INFINITY,
+    maxLat: Number.NEGATIVE_INFINITY,
+  };
+}
+
+function extendBoundaryBounds(bounds: BoundaryBounds, lng: number, lat: number) {
+  bounds.minLng = Math.min(bounds.minLng, lng);
+  bounds.maxLng = Math.max(bounds.maxLng, lng);
+  bounds.minLat = Math.min(bounds.minLat, lat);
+  bounds.maxLat = Math.max(bounds.maxLat, lat);
+}
+
+function getFirstGeoJsonCoordinate(feature: GeoJsonFeature) {
+  if (feature.geometry.type === "Polygon") {
+    return feature.geometry.coordinates[0]?.[0] ?? null;
+  }
+
+  return feature.geometry.coordinates[0]?.[0]?.[0] ?? null;
+}
+
 function getDongColorByVisitCount(visitCount: number) {
   if (visitCount <= 0) {
     return {
-      fillColor: "#F3F7FA",
-      strokeColor: "#B6C3D1",
-      fillOpacity: 0.12,
+      fillColor: "#BDE8F5",
+      strokeColor: "#1C4D8D",
+      fillOpacity: 0.3,
     };
   }
 
@@ -138,6 +181,30 @@ function getVisitStyle(count: number): VisitStyle {
   };
 }
 
+function getBoundaryRenderStyle(count: number): VisitStyle {
+  if (DEBUG_BOUNDARY_RENDERING) {
+    return {
+      fillColor: "#1C4D8D",
+      fillOpacity: 0.45,
+      strokeColor: "#0F2854",
+      strokeOpacity: 1,
+      strokeWeight: 2,
+    };
+  }
+
+  return getVisitStyle(count);
+}
+
+function getHoverVisitStyle(count: number): VisitStyle {
+  const baseStyle = getBoundaryRenderStyle(count);
+
+  return {
+    ...baseStyle,
+    fillOpacity: Math.min(baseStyle.fillOpacity + 0.2, 0.78),
+    strokeWeight: Math.max(baseStyle.strokeWeight, 2),
+  };
+}
+
 function getSelectedDongStyle(): VisitStyle {
   return {
     fillColor: "#BDE8F5",
@@ -146,6 +213,17 @@ function getSelectedDongStyle(): VisitStyle {
     strokeOpacity: 1,
     strokeWeight: 3,
   };
+}
+
+function getGeoJsonDongProperties(feature: GeoJsonFeature) {
+  const dongCode = feature.properties.emd_code ?? feature.properties.EMD_CD;
+  const dongName = feature.properties.emd_name ?? feature.properties.EMD_NM;
+
+  if (!dongCode || !dongName) {
+    return null;
+  }
+
+  return { dongCode, dongName };
 }
 
 function formatDateTime(value: string) {
@@ -300,7 +378,7 @@ export default function NaverMap() {
 
     applyPolygonStyle(
       dongCode,
-      isSelected ? getSelectedDongStyle() : getVisitStyle(count),
+      isSelected ? getSelectedDongStyle() : getBoundaryRenderStyle(count),
       isSelected ? 300 : count > 0 ? 100 : 10
     );
   }, [applyPolygonStyle]);
@@ -319,7 +397,7 @@ export default function NaverMap() {
     selectedDongCodeRef.current = null;
 
     polygonGroupsRef.current.forEach((_, dongCode) => {
-      applyPolygonStyle(dongCode, getVisitStyle(0), 10);
+      applyPolygonStyle(dongCode, getBoundaryRenderStyle(0), 10);
     });
 
     setVisitStats({
@@ -563,6 +641,19 @@ export default function NaverMap() {
       mapInitializedRef.current = true;
       const naverApi = naver;
 
+      if (!naverApi.maps.LatLng || !naverApi.maps.Polygon) {
+        console.warn("Naver Maps API is not ready for polygon rendering.", {
+          hasLatLng: Boolean(naverApi.maps.LatLng),
+          hasPolygon: Boolean(naverApi.maps.Polygon),
+        });
+        setStatusMessage("네이버 지도 API가 아직 준비되지 않아 경계를 표시하지 못했습니다.");
+        mapInitializedRef.current = false;
+        if (!cancelled) {
+          timeoutId = setTimeout(initializeMapWhenReady, 500);
+        }
+        return;
+      }
+
       const map = new naverApi.maps.Map(mapRef.current, {
         center: new naverApi.maps.LatLng(37.5665, 126.978),
         zoom: 11,
@@ -577,44 +668,121 @@ export default function NaverMap() {
         mapDataLoadedRef.current = true;
         polygonGroupsRef.current.clear();
 
-        const res = await fetch("/geo/seoul-dong.json");
-        const geojson = (await res.json()) as GeoJsonCollection;
-        setTotalDongCount(geojson.features.length);
+        try {
+          const res = await fetch(EUPMYEONDONG_GEOJSON_PATH);
 
-        geojson.features.forEach((feature) => {
-          const dongCode = feature.properties.EMD_CD;
-          const dongName = feature.properties.EMD_NM;
-          const visitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
-          const geometry = feature.geometry;
-
-          if (geometry.type === "Polygon") {
-            drawPolygon(geometry.coordinates, dongCode, dongName, visitCount);
+          if (!res.ok) {
+            const message = `${EUPMYEONDONG_GEOJSON_PATH} 파일을 불러오지 못했습니다. public/geo/eupmyeondong.geojson 파일이 있는지 확인하세요.`;
+            console.warn("GeoJSON fetch failed.", {
+              path: EUPMYEONDONG_GEOJSON_PATH,
+              status: res.status,
+              statusText: res.statusText,
+            });
+            setStatusMessage(message);
+            return;
           }
 
-          if (geometry.type === "MultiPolygon") {
-            geometry.coordinates.forEach((polygonCoords) => {
-              drawPolygon(polygonCoords, dongCode, dongName, visitCount);
+          const geojson = (await res.json()) as GeoJsonCollection;
+          const seoulFeatures = geojson.features.filter((feature) => {
+            const properties = getGeoJsonDongProperties(feature);
+
+            return properties?.dongCode.startsWith(INITIAL_RENDER_EMD_PREFIX);
+          });
+
+          setTotalDongCount(seoulFeatures.length);
+
+          let polygonInstanceCount = 0;
+          const renderedBounds = createEmptyBoundaryBounds();
+          const firstFeature = seoulFeatures[0] ?? null;
+          const firstFeatureProperties = firstFeature
+            ? getGeoJsonDongProperties(firstFeature)
+            : null;
+          const firstCoordinate = firstFeature ? getFirstGeoJsonCoordinate(firstFeature) : null;
+
+          seoulFeatures.forEach((feature) => {
+            const properties = getGeoJsonDongProperties(feature);
+
+            if (!properties) {
+              return;
+            }
+
+            const { dongCode, dongName } = properties;
+            const visitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
+            const geometry = feature.geometry;
+
+            if (geometry.type === "Polygon") {
+              drawPolygon(geometry.coordinates, dongCode, dongName, visitCount, renderedBounds);
+              polygonInstanceCount += 1;
+            }
+
+            if (geometry.type === "MultiPolygon") {
+              geometry.coordinates.forEach((polygonCoords) => {
+                drawPolygon(polygonCoords, dongCode, dongName, visitCount, renderedBounds);
+                polygonInstanceCount += 1;
+              });
+            }
+          });
+
+          if (firstCoordinate && firstFeatureProperties) {
+            const [lng, lat] = firstCoordinate;
+            console.info("GeoJSON first Seoul feature coordinate sample.", {
+              emdName: firstFeatureProperties.dongName,
+              emdCode: firstFeatureProperties.dongCode,
+              geometryType: firstFeature?.geometry.type,
+              coordinate: [lng, lat],
+              naverLatLngInput: { lat, lng },
             });
           }
-        });
+
+          console.info("GeoJSON boundary render complete.", {
+            path: EUPMYEONDONG_GEOJSON_PATH,
+            totalFeatures: geojson.features.length,
+            seoulFeatures: seoulFeatures.length,
+            polygonInstances: polygonInstanceCount,
+            polygonGroups: polygonGroupsRef.current.size,
+            bounds: renderedBounds,
+          });
+
+          if (
+            DEBUG_FIT_BOUNDS_TO_BOUNDARY &&
+            Number.isFinite(renderedBounds.minLng) &&
+            Number.isFinite(renderedBounds.minLat) &&
+            naverApi.maps.LatLngBounds
+          ) {
+            map.fitBounds(
+              new naverApi.maps.LatLngBounds(
+                new naverApi.maps.LatLng(renderedBounds.minLat, renderedBounds.minLng),
+                new naverApi.maps.LatLng(renderedBounds.maxLat, renderedBounds.maxLng)
+              )
+            );
+          }
+        } catch (error) {
+          console.warn("GeoJSON boundary render failed.", error);
+          setStatusMessage("GeoJSON 경계 데이터를 렌더링하지 못했습니다.");
+        }
       }
 
       function drawPolygon(
         coords: PolygonCoordinates,
         dongCode: string,
         dongName: string,
-        initialVisitCount: number
+        initialVisitCount: number,
+        bounds: BoundaryBounds
       ) {
-        const paths = coords[0].map(
-          ([lng, lat]: number[]) => new naverApi.maps.LatLng(lat, lng)
+        const paths = coords.map((ring) =>
+          ring.map(([lng, lat]: number[]) => {
+            extendBoundaryBounds(bounds, lng, lat);
+
+            return new naverApi.maps.LatLng(lat, lng);
+          })
         );
 
         const polygon = new naverApi.maps.Polygon({
           map,
           paths,
           clickable: true,
-          zIndex: initialVisitCount > 0 ? 100 : 10,
-          ...getVisitStyle(initialVisitCount),
+          zIndex: DEBUG_BOUNDARY_RENDERING ? 100 : initialVisitCount > 0 ? 100 : 10,
+          ...getBoundaryRenderStyle(initialVisitCount),
         });
 
         const existingGroup = polygonGroupsRef.current.get(dongCode) ?? [];
@@ -622,11 +790,31 @@ export default function NaverMap() {
         polygonGroupsRef.current.set(dongCode, existingGroup);
 
         naverApi.maps.Event.addListener(polygon, "mouseover", () => {
+          const currentVisitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
+          const isSelected = selectedDongCodeRef.current === dongCode;
           setHoverLabel(dongName);
+
+          if (!isSelected) {
+            polygon.setOptions({
+              ...getHoverVisitStyle(currentVisitCount),
+              zIndex: currentVisitCount > 0 ? 150 : 60,
+            });
+          }
         });
 
         naverApi.maps.Event.addListener(polygon, "mouseout", () => {
           setHoverLabel(null);
+
+          if (selectedDongCodeRef.current === dongCode) {
+            polygon.setOptions({ ...getSelectedDongStyle(), zIndex: 300 });
+            return;
+          }
+
+          const currentVisitCount = visitCountByDongRef.current.get(dongCode) ?? 0;
+          polygon.setOptions({
+            ...getBoundaryRenderStyle(currentVisitCount),
+            zIndex: currentVisitCount > 0 ? 100 : 10,
+          });
         });
 
         naverApi.maps.Event.addListener(polygon, "click", () => {
@@ -1320,7 +1508,7 @@ export default function NaverMap() {
               {activeDrawerTab === "status" ? (
                 <div className="space-y-3">
                   {[
-                    ["방문 전", "#F3F7FA", "아직 기록이 없는 동입니다."],
+                    ["방문 전", "#BDE8F5", "아직 기록이 없는 동입니다."],
                     ["1회 방문", "#BDE8F5", "한 번 방문한 동입니다."],
                     ["2~3회 방문", "#4988C4", "여러 번 방문한 동입니다."],
                     ["4~6회 방문", "#1C4D8D", "방문 횟수가 높은 동입니다."],
@@ -1577,7 +1765,7 @@ export default function NaverMap() {
                 </div>
                 <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-1">
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">
-                    <span className="h-2 w-2 rounded-full border border-[#B6C3D1] bg-[#F3F7FA]" />
+                    <span className="h-2 w-2 rounded-full border border-[#1C4D8D] bg-[#BDE8F5]" />
                     방문 전
                   </div>
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-700 sm:gap-2 sm:text-xs">

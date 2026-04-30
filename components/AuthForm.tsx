@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { buildAuthEmail, buildAuthLoginCandidates, validateAuthHandle } from "@/lib/auth";
+import {
+  buildAuthEmail,
+  buildAuthLoginCandidates,
+  isRecoverableAuthError,
+  validateAuthHandle,
+} from "@/lib/auth";
 import AppMenu from "@/components/AppMenu";
 
 type AuthMode = "login" | "signup";
@@ -56,13 +61,29 @@ export default function AuthForm({ mode }: AuthFormProps) {
     let cancelled = false;
 
     async function redirectIfAuthenticated() {
-      const { data } = await supabase.auth.getSession();
+      let hasSession = false;
+
+      try {
+        const { data } = await supabase.auth.getSession();
+        hasSession = Boolean(data.session);
+      } catch (error) {
+        if (isRecoverableAuthError(error)) {
+          console.warn("Recoverable auth session error on auth form. Resetting local session.", error);
+          try {
+            await supabase.auth.signOut({ scope: "local" });
+          } catch (signOutError) {
+            console.warn("Auth form local session reset failed:", signOutError);
+          }
+        } else {
+          console.warn("Failed to check auth session:", error);
+        }
+      }
 
       if (cancelled) {
         return;
       }
 
-      if (data.session) {
+      if (hasSession) {
         router.replace("/");
         router.refresh();
         return;

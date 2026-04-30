@@ -2,6 +2,29 @@ export const AUTH_HANDLE_DOMAIN = "users.travel-map-diary.local";
 const LEGACY_AUTH_HANDLE_DOMAINS = ["gmail.com"];
 export type AuthEmailProvider = "internal" | "legacy";
 
+export function isRecoverableAuthError(error: unknown) {
+  if (!error) {
+    return false;
+  }
+
+  const errorDetails =
+    error instanceof Error
+      ? `${error.name} ${error.message}`
+      : typeof error === "object"
+        ? JSON.stringify(
+            Object.getOwnPropertyNames(error).reduce<Record<string, unknown>>(
+              (result, key) => ({
+                ...result,
+                [key]: (error as Record<string, unknown>)[key],
+              }),
+              {}
+            )
+          )
+        : String(error);
+
+  return /AuthApiError|Invalid Refresh Token|Refresh Token Not Found/i.test(errorDetails);
+}
+
 export function normalizeAuthHandle(value: string) {
   return value.trim().toLowerCase();
 }

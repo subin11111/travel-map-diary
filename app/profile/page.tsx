@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import AppMenu from "@/components/AppMenu";
+import { isRecoverableAuthError } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 
 function getHandle(user: User | null) {
@@ -24,8 +25,23 @@ export default function ProfilePage() {
     let cancelled = false;
 
     async function loadSession() {
-      const { data } = await supabase.auth.getSession();
-      const currentUser = data.session?.user ?? null;
+      let currentUser: User | null = null;
+
+      try {
+        const { data } = await supabase.auth.getSession();
+        currentUser = data.session?.user ?? null;
+      } catch (error) {
+        if (isRecoverableAuthError(error)) {
+          console.warn("Recoverable auth session error on profile. Resetting local session.", error);
+          try {
+            await supabase.auth.signOut({ scope: "local" });
+          } catch (signOutError) {
+            console.warn("Profile local auth session reset failed:", signOutError);
+          }
+        } else {
+          console.warn("Failed to load profile auth session:", error);
+        }
+      }
 
       if (cancelled) {
         return;
@@ -43,7 +59,22 @@ export default function ProfilePage() {
     void loadSession();
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      const currentUser = session?.user ?? null;
+      let currentUser: User | null = null;
+
+      try {
+        currentUser = session?.user ?? null;
+      } catch (error) {
+        if (isRecoverableAuthError(error)) {
+          console.warn("Recoverable auth state error on profile. Resetting local session.", error);
+          void supabase.auth
+            .signOut({ scope: "local" })
+            .catch((signOutError) =>
+              console.warn("Profile local auth state reset failed:", signOutError)
+            );
+        } else {
+          console.warn("Profile auth state handling failed:", error);
+        }
+      }
 
       if (!currentUser) {
         router.replace("/login");
@@ -85,7 +116,7 @@ export default function ProfilePage() {
       setConfirmPassword("");
       setMessage("비밀번호가 변경되었습니다.");
     } catch (error) {
-      console.error("Failed to update password:", error);
+      console.warn("Failed to update password:", error);
       setMessage("비밀번호 변경에 실패했습니다.");
     } finally {
       setIsSaving(false);

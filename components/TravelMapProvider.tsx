@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import type { User } from "@supabase/supabase-js";
+import { isRecoverableAuthError } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import {
   MAP_SCHEMA_MISSING_MESSAGE,
@@ -80,6 +81,26 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
   const [isLoadingMaps, setIsLoadingMaps] = useState(true);
   const [mapError, setMapError] = useState<string | null>(null);
 
+  const resetAuthState = useCallback(async (reason: unknown) => {
+    console.warn("Recoverable auth session error. Resetting local session.", formatUnknownError(reason));
+
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+    } catch (signOutError) {
+      console.warn("Local auth session reset failed:", formatUnknownError(signOutError));
+    }
+
+    setAuthUser(null);
+    setMaps([]);
+    setCurrentMapId(null);
+    setMapError(null);
+    setIsLoadingMaps(false);
+
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(SELECTED_MAP_STORAGE_KEY);
+    }
+  }, []);
+
   const loadMaps = useCallback(async (user: User | null) => {
     if (!user) {
       setMaps([]);
@@ -148,13 +169,26 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     async function initialize() {
-      const { data } = await supabase.auth.getSession();
+      let currentUser: User | null = null;
+
+      try {
+        const { data } = await supabase.auth.getSession();
+        currentUser = data.session?.user ?? null;
+      } catch (error) {
+        if (isRecoverableAuthError(error)) {
+          if (!cancelled) {
+            await resetAuthState(error);
+          }
+          return;
+        }
+
+        console.warn("Failed to initialize auth session:", formatUnknownError(error));
+      }
 
       if (cancelled) {
         return;
       }
 
-      const currentUser = data.session?.user ?? null;
       setAuthUser(currentUser);
       await loadMaps(currentUser);
     }
@@ -162,16 +196,25 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
     void initialize();
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      const currentUser = session?.user ?? null;
-      setAuthUser(currentUser);
-      void loadMaps(currentUser);
+      try {
+        const currentUser = session?.user ?? null;
+        setAuthUser(currentUser);
+        void loadMaps(currentUser);
+      } catch (error) {
+        if (isRecoverableAuthError(error)) {
+          void resetAuthState(error);
+          return;
+        }
+
+        console.warn("Auth state change handling failed:", formatUnknownError(error));
+      }
     });
 
     return () => {
       cancelled = true;
       authListener.subscription.unsubscribe();
     };
-  }, [loadMaps]);
+  }, [loadMaps, resetAuthState]);
 
   const currentMap = useMemo(
     () => maps.find((map) => map.id === currentMapId) ?? null,
