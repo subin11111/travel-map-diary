@@ -140,6 +140,9 @@ const DEBUG_MAP_MODE = (process.env.NEXT_PUBLIC_DEBUG_MAP_MODE ?? "both") as
 const DEBUG_BOUNDARY_STYLE = process.env.NEXT_PUBLIC_DEBUG_BOUNDARY_STYLE === "true";
 const DEBUG_FIXED_OVERLAY_VIEW = process.env.NEXT_PUBLIC_DEBUG_FIXED_OVERLAY_VIEW === "true";
 const DEBUG_OVERLAY_BACKGROUND = process.env.NEXT_PUBLIC_DEBUG_OVERLAY_BACKGROUND === "true";
+const DEBUG_MAP_SYNC = process.env.NEXT_PUBLIC_DEBUG_MAP_SYNC === "true";
+const OVERLAY_MOVING_OPACITY = "0.22";
+const OVERLAY_IDLE_OPACITY = "1";
 
 let isPmtilesProtocolRegistered = false;
 const missingSigunguLogSet = new Set<string>();
@@ -664,6 +667,11 @@ export default function NaverMap() {
   const mapLibreZoomOffsetRef = useRef(DEFAULT_MAPLIBRE_ZOOM_OFFSET);
   const mapSyncRafRef = useRef<number | null>(null);
   const isMapMovingRef = useRef(false);
+  const isMapZoomingRef = useRef(false);
+  const lastSyncReasonRef = useRef<string | null>(null);
+  const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastOverlaySizeRef = useRef<{ width: number; height: number } | null>(null);
+  const lastSyncLogAtRef = useRef(0);
   const rerunHitTestRef = useRef<(() => void) | null>(null);
   const visitCountByDongRef = useRef(new Map<string, number>());
   const dongNameByCodeRef = useRef(new Map<string, string>());
@@ -1091,7 +1099,10 @@ export default function NaverMap() {
         ? "rgba(255, 0, 0, 0.08)"
         : "transparent";
       overlayMapElementRef.current.style.pointerEvents = "none";
-      overlayMapElementRef.current.style.opacity = "1";
+      overlayMapElementRef.current.style.opacity = isMapMovingRef.current
+        ? OVERLAY_MOVING_OPACITY
+        : OVERLAY_IDLE_OPACITY;
+      overlayMapElementRef.current.style.transition = "opacity 120ms ease-out";
       overlayMapElementRef.current.style.visibility = "visible";
       overlayMapElementRef.current.style.width = `${rootRect.width}px`;
       overlayMapElementRef.current.style.height = `${rootRect.height}px`;
@@ -1123,6 +1134,40 @@ export default function NaverMap() {
         element.style.pointerEvents = "none";
         element.style.visibility = "visible";
       });
+    }
+
+    function setOverlayTransitionState(isMoving: boolean) {
+      isMapMovingRef.current = isMoving;
+
+      if (!overlayMapElementRef.current) {
+        return;
+      }
+
+      overlayMapElementRef.current.style.transition = "opacity 120ms ease-out";
+      overlayMapElementRef.current.style.opacity = isMoving
+        ? OVERLAY_MOVING_OPACITY
+        : OVERLAY_IDLE_OPACITY;
+    }
+
+    function resizeOverlayIfNeeded(map: MapLibreMap) {
+      const rect = overlayMapElementRef.current?.getBoundingClientRect();
+
+      if (!rect) {
+        return false;
+      }
+
+      const previous = lastOverlaySizeRef.current;
+      const didSizeChange =
+        !previous ||
+        Math.abs(previous.width - rect.width) > 1 ||
+        Math.abs(previous.height - rect.height) > 1;
+
+      if (didSizeChange) {
+        map.resize();
+        lastOverlaySizeRef.current = { width: rect.width, height: rect.height };
+      }
+
+      return didSizeChange;
     }
 
     function installMapGestureGuards() {
@@ -1311,7 +1356,7 @@ export default function NaverMap() {
           logOverlayStacking("[MapLibre canvas style after resize]", overlayMap);
         }, 300);
 
-        function syncOverlayToNaverMap(reason = "manual") {
+        function syncOverlayToNaverMap(reason = "manual", mode: "live" | "final" = "final") {
           if (!mapLibreMapRef.current || !naverMapRef.current) {
             return;
           }
@@ -1325,60 +1370,103 @@ export default function NaverMap() {
           const offset = mapLibreZoomOffsetRef.current;
           const mapLibreZoom = naverZoomToMapLibreZoom(naverZoom, offset);
 
-          mapLibreMapRef.current.stop();
-          mapLibreMapRef.current.resize();
-          mapLibreMapRef.current.jumpTo({
+          resizeOverlayIfNeeded(mapLibreMapRef.current);
+
+          const camera = {
             center: DEBUG_FIXED_OVERLAY_VIEW ? [126.978, 37.5665] : naverCenter,
             zoom: DEBUG_FIXED_OVERLAY_VIEW ? 10 : mapLibreZoom,
-          });
-          console.info("[MapSync]", {
-            reason,
-            naverCenter: { lat, lng },
-            naverZoom,
-            mapLibreZoom,
-            offset,
-            naverSize: naverMapRef.current.getSize?.(),
-            naverRect: naverMapElementRef.current?.getBoundingClientRect(),
-            overlaySize: sizeRect
-              ? { width: sizeRect.width, height: sizeRect.height }
-              : overlayMapElementRef.current?.getBoundingClientRect(),
-            maplibreCenter: mapLibreMapRef.current.getCenter().toArray(),
-            maplibreZoom: mapLibreMapRef.current.getZoom(),
-          });
+          } satisfies { center: [number, number]; zoom: number };
+
+          if (mode === "live") {
+            mapLibreMapRef.current.easeTo({
+              ...camera,
+              duration: 80,
+              easing: (time) => time,
+            });
+          } else {
+            mapLibreMapRef.current.stop();
+            mapLibreMapRef.current.jumpTo(camera);
+          }
+
+          lastSyncReasonRef.current = reason;
+
+          if (DEBUG_MAP_SYNC) {
+            const now = performance.now();
+
+            if (now - lastSyncLogAtRef.current > 250 || mode === "final") {
+              lastSyncLogAtRef.current = now;
+              console.info("[MapSync]", {
+                reason,
+                mode,
+                naverCenter: { lat, lng },
+                naverZoom,
+                mapLibreZoom,
+                offset,
+                isMoving: isMapMovingRef.current,
+                isZooming: isMapZoomingRef.current,
+                overlayOpacity: overlayMapElementRef.current?.style.opacity,
+                naverSize: naverMapRef.current.getSize?.(),
+                naverRect: naverMapElementRef.current?.getBoundingClientRect(),
+                overlaySize: sizeRect
+                  ? { width: sizeRect.width, height: sizeRect.height }
+                  : overlayMapElementRef.current?.getBoundingClientRect(),
+                maplibreCenter: mapLibreMapRef.current.getCenter().toArray(),
+                maplibreZoom: mapLibreMapRef.current.getZoom(),
+              });
+            }
+          }
         }
 
-        function scheduleOverlaySync(reason: string) {
+        function scheduleOverlaySync(reason: string, mode: "live" | "final" = "live") {
           if (mapSyncRafRef.current !== null) {
-            return;
+            if (mode !== "final") {
+              return;
+            }
+
+            window.cancelAnimationFrame(mapSyncRafRef.current);
+            mapSyncRafRef.current = null;
           }
 
           mapSyncRafRef.current = window.requestAnimationFrame(() => {
             mapSyncRafRef.current = null;
-            syncOverlayToNaverMap(reason);
+            syncOverlayToNaverMap(reason, mode);
 
-            if (reason === "idle") {
-              isMapMovingRef.current = false;
-              window.requestAnimationFrame(() => {
+            if (mode === "final") {
+              setOverlayTransitionState(false);
+              isMapZoomingRef.current = false;
+              window.setTimeout(() => {
                 rerunHitTestRef.current?.();
-              });
+              }, 30);
             }
           });
         }
 
         ["zoom_changed", "bounds_changed", "dragstart", "drag"].forEach((eventName) => {
           naverApi.maps.Event.addListener(naverMap, eventName, () => {
-            isMapMovingRef.current = true;
+            if (idleTimeoutRef.current) {
+              clearTimeout(idleTimeoutRef.current);
+              idleTimeoutRef.current = null;
+            }
+            setOverlayTransitionState(true);
+            isMapZoomingRef.current = eventName === "zoom_changed";
             setHoverLabel(null);
-            scheduleOverlaySync(eventName);
+            scheduleOverlaySync(eventName, "live");
           });
         });
         ["dragend", "resize"].forEach((eventName) => {
           naverApi.maps.Event.addListener(naverMap, eventName, () => {
-            scheduleOverlaySync(eventName);
+            scheduleOverlaySync(eventName, "live");
           });
         });
         naverApi.maps.Event.addListener(naverMap, "idle", () => {
-          scheduleOverlaySync("idle");
+          if (idleTimeoutRef.current) {
+            clearTimeout(idleTimeoutRef.current);
+          }
+
+          idleTimeoutRef.current = setTimeout(() => {
+            idleTimeoutRef.current = null;
+            scheduleOverlaySync("idle", "final");
+          }, 70);
         });
 
         (window as NaverWindow).__setOverlayZoomOffset = (offset: number) => {
@@ -1389,10 +1477,10 @@ export default function NaverMap() {
 
           mapLibreZoomOffsetRef.current = offset;
           console.info("[MapSync] overlay zoom offset updated", { offset });
-          syncOverlayToNaverMap("console-offset");
+          syncOverlayToNaverMap("console-offset", "final");
         };
 
-        const handleWindowResize = () => scheduleOverlaySync("window-resize");
+        const handleWindowResize = () => scheduleOverlaySync("window-resize", "final");
         window.addEventListener("resize", handleWindowResize);
         removeWindowResizeListener = () => {
           window.removeEventListener("resize", handleWindowResize);
@@ -1403,12 +1491,14 @@ export default function NaverMap() {
             if (naverMapRef.current) {
               naverApi.maps.Event.trigger(naverMapRef.current, "resize");
             }
-            mapLibreMapRef.current?.resize();
-            scheduleOverlaySync("resize-observer");
+            if (mapLibreMapRef.current) {
+              resizeOverlayIfNeeded(mapLibreMapRef.current);
+            }
+            scheduleOverlaySync("resize-observer", "final");
           });
           resizeObserver.observe(mapRef.current);
         }
-        syncOverlayToNaverMap("initial");
+        syncOverlayToNaverMap("initial", "final");
 
         overlayMap.on("load", async () => {
           if (cancelled) {
@@ -1810,6 +1900,10 @@ export default function NaverMap() {
       if (mapSyncRafRef.current !== null) {
         cancelAnimationFrame(mapSyncRafRef.current);
         mapSyncRafRef.current = null;
+      }
+      if (idleTimeoutRef.current) {
+        clearTimeout(idleTimeoutRef.current);
+        idleTimeoutRef.current = null;
       }
       removeManualHitTest?.();
       removeManualHitTest = null;
