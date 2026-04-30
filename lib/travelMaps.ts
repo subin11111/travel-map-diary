@@ -7,7 +7,9 @@ export type TravelMap = {
   owner_id: string;
   title: string;
   description: string | null;
+  icon: string | null;
   created_at: string;
+  updated_at: string | null;
   role: MapRole;
 };
 
@@ -32,14 +34,18 @@ type MapMemberRow = {
         owner_id: string;
         title: string;
         description: string | null;
+        icon: string | null;
         created_at: string;
+        updated_at: string | null;
       }
     | {
         id: string;
         owner_id: string;
         title: string;
         description: string | null;
+        icon: string | null;
         created_at: string;
+        updated_at: string | null;
       }[]
     | null;
 };
@@ -49,7 +55,9 @@ type MapRow = {
   owner_id: string;
   title: string;
   description: string | null;
+  icon: string | null;
   created_at: string;
+  updated_at: string | null;
 };
 
 type SupabaseErrorLike = {
@@ -79,6 +87,12 @@ type CreateTravelMapRow = MapRow & {
 export type CreateTravelMapResult =
   | { ok: true; map: TravelMap }
   | { ok: false; errorMessage: string; debug?: unknown };
+
+export type UpdateTravelMapInput = {
+  title: string;
+  description?: string | null;
+  icon?: string | null;
+};
 
 export const MAP_SCHEMA_MISSING_MESSAGE =
   "지도 공유 기능을 위한 DB 테이블이 아직 생성되지 않았습니다. Supabase SQL 마이그레이션을 적용해 주세요.";
@@ -192,7 +206,7 @@ export function logSupabaseWarning(context: string, error: unknown) {
 export async function fetchTravelMaps() {
   const { data, error } = await supabase
     .from("map_members")
-    .select("id, map_id, user_id, role, created_at, maps(id, owner_id, title, description, created_at)")
+    .select("id, map_id, user_id, role, created_at, maps(id, owner_id, title, description, icon, created_at, updated_at)")
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -237,9 +251,36 @@ export async function createTravelMap(
     ok: true,
     map: {
       ...createdMap,
+      icon: createdMap.icon ?? null,
+      updated_at: createdMap.updated_at ?? null,
       role: "owner" as const,
     },
   };
+}
+
+export async function updateTravelMap(mapId: string, input: UpdateTravelMapInput) {
+  const title = input.title.trim();
+
+  if (!title) {
+    throw new Error("지도 이름을 입력하세요.");
+  }
+
+  const { data, error } = await supabase
+    .from("maps")
+    .update({
+      title,
+      description: input.description?.trim() ? input.description.trim() : null,
+      icon: input.icon?.trim() ? input.icon.trim() : null,
+    })
+    .eq("id", mapId)
+    .select("id, owner_id, title, description, icon, created_at, updated_at")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as MapRow;
 }
 
 export async function fetchMapMembers(mapId: string) {

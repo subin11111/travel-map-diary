@@ -5,13 +5,13 @@ export default defineConfig({
   outputDir: "test-results",
   timeout: 30_000,
   use: {
-    baseURL: "http://127.0.0.1:3000",
+    baseURL: "http://localhost:3001",
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "npm.cmd run dev",
-    url: "http://127.0.0.1:3000",
-    reuseExistingServer: !process.env.CI,
+    command: "npx.cmd next dev --port 3001",
+    url: "http://localhost:3001",
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });

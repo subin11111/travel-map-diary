@@ -5,7 +5,9 @@ import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
-import AppMenu from "@/components/AppMenu";
+import MapCreateModal from "@/components/MapCreateModal";
+import MapEditModal from "@/components/MapEditModal";
+import MapShareModal from "@/components/MapShareModal";
 import MapSelector from "@/components/MapSelector";
 import { useTravelMaps } from "@/components/TravelMapProvider";
 import type { TravelMap } from "@/lib/travelMaps";
@@ -30,6 +32,8 @@ type VisitStats = {
   topDongName: string | null;
   topVisitCount: number;
 };
+
+type DrawerTab = "map" | "stats" | "status" | "records" | "account";
 
 type DongDiary = {
   id: string;
@@ -155,10 +159,25 @@ export default function NaverMap() {
   const canEditCurrentMapRef = useRef(false);
   const clickPulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { authUser, currentMap, canEditCurrentMap, isLoadingMaps } = useTravelMaps();
+  const {
+    authUser,
+    maps,
+    currentMap,
+    canEditCurrentMap,
+    isLoadingMaps,
+    mapError,
+    selectMap,
+    createMap,
+    updateMap,
+  } = useTravelMaps();
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [isTimelineOpen, setIsTimelineOpen] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [activeDrawerTab, setActiveDrawerTab] = useState<DrawerTab>("map");
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
 
   const [selectedDong, setSelectedDong] = useState<SelectedDong | null>(null);
   const [hoveredDongName, setHoveredDongName] = useState<string | null>(null);
@@ -173,6 +192,7 @@ export default function NaverMap() {
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [photoInputKey, setPhotoInputKey] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [totalDongCount, setTotalDongCount] = useState(0);
   const [visitStats, setVisitStats] = useState<VisitStats>({
     visitedDongCount: 0,
     totalVisitCount: 0,
@@ -400,6 +420,7 @@ export default function NaverMap() {
 
         const res = await fetch("/geo/seoul-dong.json");
         const geojson = (await res.json()) as GeoJsonCollection;
+        setTotalDongCount(geojson.features.length);
 
         geojson.features.forEach((feature) => {
           const dongCode = feature.properties.EMD_CD;
@@ -748,9 +769,51 @@ export default function NaverMap() {
     },
   ];
 
+  const ownedMaps = maps.filter((map) => map.role === "owner");
+  const sharedMaps = maps.filter((map) => map.role !== "owner");
+  const visitedRatio =
+    totalDongCount > 0 ? Math.round((visitStats.visitedDongCount / totalDongCount) * 100) : 0;
+  const mapTitle = currentMap?.title ?? (isLoadingMaps ? "지도 불러오는 중" : "서울 동 단위 여행 일기");
+  const drawerTabs: { id: DrawerTab; label: string }[] = [
+    { id: "map", label: "지도" },
+    { id: "stats", label: "통계" },
+    { id: "status", label: "현황" },
+    { id: "records", label: "기록" },
+    { id: "account", label: "계정" },
+  ];
+
   return (
-    <main className="min-h-dvh bg-[radial-gradient(circle_at_top,_rgba(237,246,255,0.95),_rgba(247,250,252,1)_34%,_rgba(232,238,252,0.92)_100%)] text-slate-900">
-      <AppMenu />
+    <main className="min-h-dvh overflow-hidden bg-slate-950 text-slate-900">
+      <header className="fixed inset-x-0 top-0 z-[60] border-b border-white/10 bg-slate-950/90 px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top))] text-white shadow-lg shadow-slate-950/20 backdrop-blur">
+        <div className="mx-auto flex h-12 max-w-[1600px] items-center gap-3">
+          <button
+            type="button"
+            data-testid="main-menu-button"
+            onClick={() => setIsDrawerOpen(true)}
+            className="flex h-10 w-10 flex-none items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white transition hover:bg-white/15"
+            aria-label="메뉴 열기"
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current stroke-[2]">
+              <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
+            </svg>
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-300">
+              Travel Map Diary
+            </p>
+            <h1 className="truncate text-sm font-semibold sm:text-base">
+              {currentMap?.icon ? `${currentMap.icon} ` : ""}
+              {mapTitle}
+            </h1>
+          </div>
+          {selectedDong ? (
+            <span className="hidden max-w-[180px] truncate rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-slate-200 sm:block">
+              {selectedDong.dongName}
+            </span>
+          ) : null}
+        </div>
+      </header>
+
       {isModalOpen && selectedDong ? (
         <div className="fixed left-0 top-0 z-50 flex h-full w-full items-center justify-center bg-black/50 p-4">
           <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-6">
@@ -818,9 +881,290 @@ export default function NaverMap() {
           </div>
         </div>
       ) : null}
-      <div className="mx-auto grid min-h-dvh w-full max-w-[1600px] gap-4 px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-20 sm:p-4 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-stretch">
-        <section className="flex min-h-[56vh] flex-col overflow-hidden rounded-[24px] border border-white/70 bg-white/80 shadow-[0_30px_80px_rgba(15,23,42,0.14)] backdrop-blur sm:min-h-[60vh] lg:h-[calc(100vh-2rem)] lg:min-h-0 lg:rounded-[28px]">
-          <div className="flex flex-col gap-3 border-b border-slate-200/80 px-4 py-4 sm:px-5 xl:flex-row xl:items-center xl:justify-between">
+      {isDrawerOpen ? (
+        <div className="fixed inset-0 z-[70] bg-slate-950/50 backdrop-blur-sm">
+          <aside className="ml-auto flex h-full w-full max-w-md flex-col bg-slate-950 text-slate-100 shadow-2xl sm:m-3 sm:h-[calc(100%-1.5rem)] sm:rounded-[28px]">
+            <div className="border-b border-white/10 px-4 pb-3 pt-[calc(1rem+env(safe-area-inset-top))] sm:pt-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
+                    Travel Map Diary
+                  </p>
+                  <h2 className="mt-1 truncate text-xl font-semibold">
+                    {currentMap?.icon ? `${currentMap.icon} ` : ""}
+                    {mapTitle}
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsDrawerOpen(false)}
+                  className="rounded-full bg-white/10 px-3 py-1 text-sm font-medium text-white"
+                >
+                  닫기
+                </button>
+              </div>
+              <div className="mt-4 grid grid-cols-5 gap-1 rounded-2xl bg-white/5 p-1">
+                {drawerTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    data-testid={`drawer-tab-${tab.id}`}
+                    onClick={() => setActiveDrawerTab(tab.id)}
+                    className={`rounded-xl px-2 py-2 text-xs font-semibold transition ${
+                      activeDrawerTab === tab.id
+                        ? "bg-sky-400 text-slate-950"
+                        : "text-slate-300 hover:bg-white/10"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+              {activeDrawerTab === "map" ? (
+                <div className="space-y-4">
+                  {authUser ? (
+                    <>
+                      <section className="rounded-[24px] border border-white/10 bg-white/5 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
+                          현재 지도
+                        </p>
+                        <h3 className="mt-2 text-lg font-semibold">
+                          {currentMap?.icon ? `${currentMap.icon} ` : ""}
+                          {currentMap?.title ?? "지도 없음"}
+                        </h3>
+                        <p className="mt-2 text-sm leading-6 text-slate-300">
+                          {currentMap?.description ??
+                            (currentMap ? "지도 설명이 없습니다." : "지도를 만들거나 선택하세요.")}
+                        </p>
+                        {mapError ? (
+                          <p className="mt-3 rounded-2xl border border-sky-300/30 bg-sky-950/40 px-4 py-3 text-sm font-medium text-slate-100">
+                            {mapError}
+                          </p>
+                        ) : null}
+                      </section>
+                      <section className="rounded-[24px] border border-white/10 bg-white/5 p-4">
+                        <label className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
+                          지도 선택
+                        </label>
+                        {maps.length > 0 ? (
+                          <select
+                            value={currentMap?.id ?? ""}
+                            onChange={(event) => selectMap(event.target.value)}
+                            disabled={isLoadingMaps}
+                            className="mt-3 w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none focus:border-sky-300 disabled:cursor-not-allowed disabled:text-slate-400"
+                          >
+                            {ownedMaps.length > 0 ? (
+                              <optgroup label="내 지도">
+                                {ownedMaps.map((map) => (
+                                  <option key={map.id} value={map.id}>
+                                    {map.icon ? `${map.icon} ` : ""}
+                                    {map.title}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            ) : null}
+                            {sharedMaps.length > 0 ? (
+                              <optgroup label="공유 받은 지도">
+                                {sharedMaps.map((map) => (
+                                  <option key={map.id} value={map.id}>
+                                    {map.icon ? `${map.icon} ` : ""}
+                                    {map.title}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            ) : null}
+                          </select>
+                        ) : (
+                          <div className="mt-3 rounded-2xl border border-white/15 bg-black/25 px-4 py-3 text-sm text-slate-200">
+                            아직 생성된 지도가 없습니다.
+                          </div>
+                        )}
+                      </section>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <button type="button" onClick={() => setIsCreateOpen(true)} className="rounded-2xl bg-sky-400 px-4 py-3 text-sm font-semibold text-slate-950">
+                          새 지도 만들기
+                        </button>
+                        {currentMap?.role === "owner" ? (
+                          <>
+                            <button type="button" onClick={() => setIsEditOpen(true)} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white">
+                              지도 정보 수정
+                            </button>
+                            <button type="button" onClick={() => setIsShareOpen(true)} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white sm:col-span-2">
+                              지도 공유 관리
+                            </button>
+                          </>
+                        ) : currentMap ? (
+                          <p className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-300 sm:col-span-2">
+                            지도 정보 수정은 소유자만 가능합니다.
+                          </p>
+                        ) : null}
+                      </div>
+                    </>
+                  ) : (
+                    <section className="rounded-[24px] border border-white/10 bg-white/5 p-4">
+                      <h3 className="text-lg font-semibold">로그인이 필요합니다</h3>
+                      <p className="mt-2 text-sm leading-6 text-slate-300">
+                        로그인하면 지도 생성, 기록 저장, 사진 업로드를 사용할 수 있습니다.
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Link href="/login" className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950">
+                          로그인
+                        </Link>
+                        <Link href="/signup" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white">
+                          회원가입
+                        </Link>
+                      </div>
+                    </section>
+                  )}
+                </div>
+              ) : null}
+
+              {activeDrawerTab === "stats" ? (
+                <div className="space-y-3" data-testid="visit-stats">
+                  {visitBadgeItems.map((item) => (
+                    <div key={item.label} className={`flex items-center gap-3 rounded-[24px] border px-4 py-4 ${item.toneClassName}`}>
+                      <span className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-white/80 shadow-sm">
+                        {item.icon}
+                      </span>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] opacity-80">
+                          {item.label}
+                        </p>
+                        <p className="mt-1 text-lg font-semibold text-slate-950">{item.value}</p>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="rounded-[24px] border border-white/10 bg-white/5 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
+                      방문 비율
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold">{visitedRatio}%</p>
+                    <p className="mt-1 text-sm text-slate-300">
+                      전체 {totalDongCount}개 동 중 {visitStats.visitedDongCount}개 방문
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
+              {activeDrawerTab === "status" ? (
+                <div className="space-y-3">
+                  {[
+                    ["방문 전", "#FBE4D6", "아직 기록이 없는 동입니다."],
+                    ["1회 이상 방문", "#261FB3", "방문 기록 또는 일기가 있는 동입니다."],
+                    ["통계 상위 동", "#34d399", "가장 많이 방문한 동은 통계 탭에서 확인합니다."],
+                    ["선택된 동", "#7c3aed", selectedDong ? selectedDong.dongName : "아직 선택된 동이 없습니다."],
+                  ].map(([label, color, detail]) => (
+                    <div key={label} className="flex items-center gap-3 rounded-[24px] border border-white/10 bg-white/5 p-4">
+                      <span className="h-4 w-4 rounded-full border border-white/50" style={{ backgroundColor: color }} />
+                      <div>
+                        <p className="font-semibold">{label}</p>
+                        <p className="text-sm text-slate-300">{detail}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {activeDrawerTab === "records" ? (
+                <div className="space-y-3">
+                  <div className="rounded-[24px] border border-white/10 bg-white/5 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
+                      선택된 동의 타임라인
+                    </p>
+                    <h3 className="mt-2 text-lg font-semibold">
+                      {selectedDong ? selectedDong.dongName : "동을 선택하세요"}
+                    </h3>
+                  </div>
+                  {!selectedDong ? (
+                    <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-300">
+                      지도에서 동을 선택하면 기록을 확인할 수 있습니다.
+                    </div>
+                  ) : isLoadingDiaries ? (
+                    <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-300">
+                      일기를 불러오는 중입니다.
+                    </div>
+                  ) : diaries.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-300">
+                      아직 작성된 일기가 없습니다.
+                    </div>
+                  ) : (
+                    diaries.map((diary) => (
+                      <article key={diary.id} className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+                        {diary.photo_url ? (
+                          <div className="relative h-40 w-full">
+                            <Image src={diary.photo_url} alt={diary.title ?? diary.dong_name} fill unoptimized className="object-cover" />
+                          </div>
+                        ) : null}
+                        <div className="space-y-3 p-4">
+                          <h4 className="text-base font-semibold text-white">
+                            {diary.title ?? diary.dong_name}
+                          </h4>
+                          <p className="text-xs text-slate-400">{formatDateTime(diary.created_at)}</p>
+                          <p className="whitespace-pre-wrap text-sm leading-6 text-slate-200">
+                            {diary.content}
+                          </p>
+                        </div>
+                      </article>
+                    ))
+                  )}
+                </div>
+              ) : null}
+
+              {activeDrawerTab === "account" ? (
+                <div className="space-y-4">
+                  <section className="rounded-[24px] border border-white/10 bg-white/5 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">
+                      계정
+                    </p>
+                    <h3 className="mt-2 text-lg font-semibold">
+                      {authUser?.email ? authUser.email.split("@")[0] : "로그인 전"}
+                    </h3>
+                    <p className="mt-2 text-sm text-slate-300">
+                      {authUser ? "세션이 유지되고 있습니다." : "로그인하면 개인 지도를 사용할 수 있습니다."}
+                    </p>
+                  </section>
+                  {authUser ? (
+                    <div className="grid gap-2">
+                      <Link href="/profile" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white">
+                        프로필
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        disabled={isAuthSubmitting}
+                        className="rounded-2xl border border-rose-300/20 bg-rose-500/10 px-4 py-3 text-left text-sm font-semibold text-rose-200 disabled:cursor-not-allowed disabled:text-slate-400"
+                      >
+                        {isAuthSubmitting ? "로그아웃 중" : "로그아웃"}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      <Link href="/login" className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950">
+                        로그인
+                      </Link>
+                      <Link href="/signup" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white">
+                        회원가입
+                      </Link>
+                    </div>
+                  )}
+                  {authMessage ? (
+                    <p className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200">
+                      {authMessage}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </aside>
+        </div>
+      ) : null}
+
+      <div className="mx-auto grid min-h-dvh w-full max-w-[1600px] gap-4 px-0 pb-0 pt-[calc(3.5rem+env(safe-area-inset-top))] lg:block">
+        <section className="flex h-[calc(100dvh-3.5rem-env(safe-area-inset-top))] min-h-[70vh] flex-col overflow-hidden bg-white/80 shadow-[0_30px_80px_rgba(15,23,42,0.14)] backdrop-blur lg:h-[calc(100dvh-3.5rem-env(safe-area-inset-top))]">
+          <div className="hidden flex-col gap-3 border-b border-slate-200/80 px-4 py-4 sm:px-5 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-sky-700 sm:text-xs sm:tracking-[0.28em]">
                 Travel Map Diary
@@ -840,7 +1184,7 @@ export default function NaverMap() {
               </div>
 
               <div
-                data-testid="visit-stats"
+                data-testid="legacy-visit-stats"
                 className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap"
               >
                 {visitBadgeItems.map((item) => (
@@ -864,8 +1208,8 @@ export default function NaverMap() {
               </div>
             </div>
           </div>
-          <div className="relative h-[60vh] min-h-[420px] max-h-[640px] overflow-hidden sm:min-h-[54vh] lg:h-auto lg:min-h-0 lg:max-h-none lg:flex-1">
-            <div ref={mapRef} className="h-full w-full" />
+          <div className="relative min-h-0 flex-1 overflow-hidden">
+            <div ref={mapRef} data-testid="map-viewport" className="h-full w-full" />
             <div className="pointer-events-none absolute left-3 top-3 z-20 flex max-w-[calc(100%-1.5rem)] flex-col gap-2 sm:left-4 sm:top-4 sm:max-w-[360px]">
               <div className="hidden rounded-2xl border border-white/70 bg-white/90 px-4 py-3 text-sm font-medium text-slate-800 shadow-lg backdrop-blur sm:block">
                 {hoveredDongName ? `현재 보기: ${hoveredDongName}` : "동 위에 마우스를 올리면 이름이 표시됩니다."}
@@ -878,7 +1222,7 @@ export default function NaverMap() {
               ) : null}
             </div>
 
-            <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-1.5rem)] sm:bottom-4 sm:left-4">
+            <div className="pointer-events-none absolute bottom-3 left-3 z-20 hidden max-w-[calc(100%-1.5rem)] sm:bottom-4 sm:left-4">
               <div className="rounded-2xl border border-white/70 bg-white/90 p-2 shadow-lg backdrop-blur sm:p-4">
                 <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-500 sm:mb-2 sm:text-[11px] sm:tracking-[0.24em]">
                   Legend
@@ -909,7 +1253,7 @@ export default function NaverMap() {
 
         <aside
           data-testid="mobile-side-panel"
-          className="flex min-h-0 flex-col gap-4 rounded-[28px] border border-slate-200/80 bg-slate-950 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 text-slate-100 shadow-[0_30px_80px_rgba(15,23,42,0.2)] sm:pb-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)]"
+          className="hidden min-h-0 flex-col gap-4 rounded-[28px] border border-slate-200/80 bg-slate-950 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 text-slate-100 shadow-[0_30px_80px_rgba(15,23,42,0.2)] sm:pb-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)]"
         >
           <div className="rounded-[24px] border border-white/10 bg-white/5 p-4 sm:p-5">
             {!authUser ? (
@@ -1064,6 +1408,22 @@ export default function NaverMap() {
           </div>
         </aside>
       </div>
+      <MapCreateModal
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        onCreate={async (title, description) => createMap(title, description)}
+      />
+      <MapEditModal
+        isOpen={isEditOpen}
+        map={currentMap}
+        onClose={() => setIsEditOpen(false)}
+        onSave={async (mapId, input) => updateMap(mapId, input)}
+      />
+      <MapShareModal
+        isOpen={isShareOpen}
+        map={currentMap}
+        onClose={() => setIsShareOpen(false)}
+      />
     </main>
   );
 }

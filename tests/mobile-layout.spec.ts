@@ -44,27 +44,34 @@ test("home mobile header, stats, and safe-area spacing do not overlap", async ({
   await page.goto("/");
   await page.waitForLoadState("networkidle");
 
-  const menuButton = page.getByRole("button", { name: /메뉴/ });
+  const menuButton = page.locator('[data-testid="main-menu-button"]');
   const brand = page.getByText("Travel Map Diary").first();
-  const title = page.getByRole("heading", { name: "서울 동 단위 여행 일기" });
-  const statsRegion = page.locator('[data-testid="visit-stats"]');
-  const aside = page.locator('[data-testid="mobile-side-panel"]');
+  const mapCanvas = page.locator('[data-testid="map-viewport"]');
 
   await expect(menuButton).toBeVisible();
   await expect(brand).toBeVisible();
-  await expect(title).toBeVisible();
-  await expect(statsRegion).toBeVisible();
 
   await expectNoOverlap(menuButton, brand);
-  await expectNoOverlap(menuButton, title);
   await expectNoHorizontalOverflow(page);
 
+  const mapBox = await mapCanvas.boundingBox();
+  expect(mapBox).not.toBeNull();
+  expect(mapBox!.height).toBeGreaterThan(650);
+
+  await menuButton.click();
+  const statsTab = page.locator('[data-testid="drawer-tab-stats"]');
+  await expect(statsTab).toBeVisible();
+  await statsTab.click();
+
+  const statsRegion = page.locator('[data-testid="visit-stats"]');
+  await expect(statsRegion).toBeVisible();
   const statsBox = await statsRegion.boundingBox();
   expect(statsBox).not.toBeNull();
   expect(statsBox!.x).toBeGreaterThanOrEqual(0);
   expect(statsBox!.x + statsBox!.width).toBeLessThanOrEqual(mobileViewport.width + 1);
 
-  const safePadding = await aside.evaluate((element) => getComputedStyle(element).paddingBottom);
+  const drawerContent = page.locator("aside").first().locator("div").last();
+  const safePadding = await drawerContent.evaluate((element) => getComputedStyle(element).paddingBottom);
   expect(Number.parseFloat(safePadding)).toBeGreaterThanOrEqual(16);
 
   await page.screenshot({ path: "test-results/mobile-home.png", fullPage: true });

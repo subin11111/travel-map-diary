@@ -16,10 +16,12 @@ import {
   createTravelMap,
   fetchTravelMaps,
   isMissingMapSharingSchemaError,
+  updateTravelMap,
   type TravelMap,
 } from "@/lib/travelMaps";
 
 type CreateMapResult = { ok: true } | { ok: false; errorMessage: string };
+type UpdateMapResult = { ok: true } | { ok: false; errorMessage: string };
 
 type TravelMapContextValue = {
   authUser: User | null;
@@ -31,6 +33,10 @@ type TravelMapContextValue = {
   selectMap: (mapId: string) => void;
   refreshMaps: () => Promise<void>;
   createMap: (title: string, description?: string) => Promise<CreateMapResult>;
+  updateMap: (
+    mapId: string,
+    input: { title: string; description?: string | null; icon?: string | null }
+  ) => Promise<UpdateMapResult>;
 };
 
 const TravelMapContext = createContext<TravelMapContextValue | null>(null);
@@ -211,6 +217,48 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
     [authUser, selectMap]
   );
 
+  const updateMap = useCallback(
+    async (
+      mapId: string,
+      input: { title: string; description?: string | null; icon?: string | null }
+    ) => {
+      const targetMap = maps.find((map) => map.id === mapId);
+
+      if (!authUser || targetMap?.role !== "owner") {
+        return {
+          ok: false,
+          errorMessage: "지도 소유자만 지도 정보를 수정할 수 있습니다.",
+        } satisfies UpdateMapResult;
+      }
+
+      try {
+        const updatedMap = await updateTravelMap(mapId, input);
+
+        setMaps((current) =>
+          current.map((map) =>
+            map.id === mapId
+              ? {
+                  ...map,
+                  ...updatedMap,
+                  role: map.role,
+                }
+              : map
+          )
+        );
+        setMapError(null);
+        return { ok: true } satisfies UpdateMapResult;
+      } catch (error) {
+        console.error("Failed to update map:", formatUnknownError(error));
+        return {
+          ok: false,
+          errorMessage:
+            error instanceof Error ? error.message : "지도 정보를 저장하지 못했습니다.",
+        } satisfies UpdateMapResult;
+      }
+    },
+    [authUser, maps]
+  );
+
   const value = useMemo(
     () => ({
       authUser,
@@ -222,6 +270,7 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
       selectMap,
       refreshMaps,
       createMap,
+      updateMap,
     }),
     [
       authUser,
@@ -232,6 +281,7 @@ export function TravelMapProvider({ children }: { children: React.ReactNode }) {
       selectMap,
       refreshMaps,
       createMap,
+      updateMap,
     ]
   );
 
