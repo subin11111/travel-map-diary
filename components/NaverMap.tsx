@@ -10,6 +10,11 @@ import MapCreateModal from "@/components/MapCreateModal";
 import MapEditModal from "@/components/MapEditModal";
 import MapShareModal from "@/components/MapShareModal";
 import { SIDO_CODE_MAP, SIGUNGU_CODE_MAP } from "@/lib/administrativeCodes";
+import {
+  ImageCompressionError,
+  compressImageBeforeUpload,
+  formatBytes,
+} from "@/lib/imageCompression";
 import { useTravelMaps } from "@/components/TravelMapProvider";
 import type { TravelMap } from "@/lib/travelMaps";
 
@@ -722,6 +727,7 @@ export default function NaverMap() {
   const [recordSearch, setRecordSearch] = useState("");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoLink, setPhotoLink] = useState("");
+  const [photoCompressionMessage, setPhotoCompressionMessage] = useState<string | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [photoInputKey, setPhotoInputKey] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -860,6 +866,7 @@ export default function NaverMap() {
       photoPreviewUrlRef.current = null;
     }
     setPhotoFile(null);
+    setPhotoCompressionMessage(null);
     setPhotoPreviewUrl(null);
     setPhotoInputKey((current) => current + 1);
     if (photoInputRef.current) {
@@ -1957,13 +1964,46 @@ export default function NaverMap() {
       let photoUrl = photoLink.trim() || null;
 
       if (photoFile) {
-        const fileExtension = photoFile.name.split(".").pop() || "jpg";
+        setStatusMessage("이미지를 압축하는 중입니다...");
+        const compressedImage = await compressImageBeforeUpload(photoFile);
+        const uploadFile = compressedImage.file;
+        const fileExtension =
+          uploadFile.type === "image/png"
+            ? "png"
+            : uploadFile.type === "image/gif"
+              ? "gif"
+              : uploadFile.type === "image/webp"
+                ? "webp"
+                : "jpg";
         const filePath = `${currentMap.id}/${authUser.id}/${selectedDong.dongCode}/${crypto.randomUUID()}.${fileExtension}`;
+        const compressionMessage = compressedImage.didCompress
+          ? `압축 완료: ${formatBytes(compressedImage.originalSize)} → ${formatBytes(
+              compressedImage.compressedSize
+            )}`
+          : `원본 사용: ${formatBytes(compressedImage.originalSize)}`;
+        const uploadSizeWarning =
+          compressedImage.compressedSize > 5 * 1024 * 1024
+            ? " 압축 후에도 파일이 커서 업로드와 로딩이 느릴 수 있습니다."
+            : "";
+
+        console.info("[ImageCompression] upload prepared", {
+          originalName: photoFile.name,
+          originalSize: compressedImage.originalSize,
+          compressedSize: compressedImage.compressedSize,
+          width: compressedImage.width,
+          height: compressedImage.height,
+          mimeType: compressedImage.mimeType,
+          didCompress: compressedImage.didCompress,
+        });
+
+        setPhotoCompressionMessage(`${compressionMessage}.${uploadSizeWarning}`);
+        setStatusMessage(`${compressionMessage}.${uploadSizeWarning} 사진을 업로드하는 중입니다...`);
 
         const { error: uploadError } = await supabase.storage
           .from("dong-diary-photos")
-          .upload(filePath, photoFile, {
+          .upload(filePath, uploadFile, {
             cacheControl: "3600",
+            contentType: uploadFile.type,
             upsert: false,
           });
 
@@ -2081,6 +2121,10 @@ export default function NaverMap() {
       setIsModalOpen(false);
     } catch (error) {
       console.error("Failed to save diary:", error);
+      if (error instanceof ImageCompressionError) {
+        setStatusMessage(error.message);
+        return;
+      }
       setStatusMessage("일기 저장에 실패했습니다. 잠시 후 다시 시도하세요.");
     } finally {
       setIsSavingDiary(false);
@@ -2096,10 +2140,34 @@ export default function NaverMap() {
     }
 
     setPhotoFile(nextFile);
+    setPhotoCompressionMessage(null);
 
     if (!nextFile) {
       setPhotoPreviewUrl(null);
       return;
+    }
+
+    const fileName = nextFile.name.toLowerCase();
+    const isHeicLike =
+      nextFile.type === "image/heic" ||
+      nextFile.type === "image/heif" ||
+      fileName.endsWith(".heic") ||
+      fileName.endsWith(".heif");
+
+    if (isHeicLike) {
+      setPhotoFile(null);
+      setPhotoPreviewUrl(null);
+      setStatusMessage("HEIC 이미지는 브라우저에서 변환이 제한될 수 있습니다. JPG 또는 PNG로 선택해 주세요.");
+      if (photoInputRef.current) {
+        photoInputRef.current.value = "";
+      }
+      return;
+    }
+
+    if (nextFile.size > 15 * 1024 * 1024) {
+      setPhotoCompressionMessage(
+        `원본 사진이 큽니다(${formatBytes(nextFile.size)}). 저장 전에 자동 압축합니다.`
+      );
     }
 
     const nextPreviewUrl = URL.createObjectURL(nextFile);
@@ -2114,6 +2182,7 @@ export default function NaverMap() {
     }
 
     setPhotoFile(null);
+    setPhotoCompressionMessage(null);
     setPhotoPreviewUrl(null);
     setPhotoInputKey((current) => current + 1);
 
@@ -2342,6 +2411,11 @@ export default function NaverMap() {
                 onChange={handlePhotoChange}
                 className="block w-full cursor-pointer rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-800"
               />
+              {photoCompressionMessage ? (
+                <p className="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-800">
+                  {photoCompressionMessage}
+                </p>
+              ) : null}
 
               {photoPreviewUrl ? (
                 <div className="relative h-44 overflow-hidden rounded-2xl border border-slate-200 bg-black/5">
