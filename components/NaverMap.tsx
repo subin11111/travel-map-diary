@@ -262,6 +262,7 @@ export default function NaverMap() {
   });
 
   const sortedDiaries = useMemo(() => sortDiaries(diaries, timelineSort), [diaries, timelineSort]);
+  const selectedDongVisitCount = selectedDong ? Math.max(selectedDong.visitCount, diaries.length) : 0;
   const sortedAllDiaries = useMemo(() => {
     const query = recordSearch.trim().toLowerCase();
     const source = query
@@ -380,6 +381,36 @@ export default function NaverMap() {
       dongNameMap.set(place.dong_code, place.dong_name);
     });
 
+    const { data: diaryCountRows, error: diaryCountError } = await supabase
+      .from("dong_diaries")
+      .select("dong_code, dong_name")
+      .eq("map_id", mapId);
+
+    if (diaryCountError) {
+      console.error("Failed to load diary counts:", diaryCountError);
+      setStatusMessage("일기 기반 방문 횟수를 불러오지 못했습니다.");
+    }
+
+    const diaryCountByDong = new Map<string, number>();
+    const diaryNameByDong = new Map<string, string>();
+
+    diaryCountRows?.forEach((diary) => {
+      diaryCountByDong.set(diary.dong_code, (diaryCountByDong.get(diary.dong_code) ?? 0) + 1);
+      diaryNameByDong.set(diary.dong_code, diary.dong_name);
+    });
+
+    diaryCountByDong.forEach((diaryCount, dongCode) => {
+      const currentVisitCount = visitCountMap.get(dongCode) ?? 0;
+
+      if (diaryCount > currentVisitCount) {
+        visitCountMap.set(dongCode, diaryCount);
+      }
+
+      if (!dongNameMap.has(dongCode)) {
+        dongNameMap.set(dongCode, diaryNameByDong.get(dongCode) ?? dongCode);
+      }
+    });
+
     visitCountByDongRef.current = visitCountMap;
     dongNameByCodeRef.current = dongNameMap;
     topDongCodesRef.current = new Set(
@@ -390,21 +421,19 @@ export default function NaverMap() {
         .map(([dongCode]) => dongCode)
     );
 
-    const visitedDongCount = visitedPlaces?.length ?? 0;
-    const totalVisitCount = (visitedPlaces ?? []).reduce(
-      (sum, place) => sum + (place.visit_count ?? 1),
-      0
-    );
-    const topVisitedPlace = (visitedPlaces ?? []).reduce(
-      (top, place) => ((place.visit_count ?? 1) > (top?.visit_count ?? 0) ? place : top),
-      visitedPlaces?.[0] ?? null
+    const visitEntries = [...visitCountMap.entries()];
+    const visitedDongCount = visitEntries.filter(([, count]) => count > 0).length;
+    const totalVisitCount = visitEntries.reduce((sum, [, count]) => sum + count, 0);
+    const topVisitEntry = visitEntries.reduce<[string, number] | null>(
+      (top, entry) => (entry[1] > (top?.[1] ?? 0) ? entry : top),
+      null
     );
 
     setVisitStats({
       visitedDongCount,
       totalVisitCount,
-      topDongName: topVisitedPlace ? dongNameMap.get(topVisitedPlace.dong_code) ?? topVisitedPlace.dong_name : null,
-      topVisitCount: topVisitedPlace?.visit_count ?? 0,
+      topDongName: topVisitEntry ? dongNameMap.get(topVisitEntry[0]) ?? null : null,
+      topVisitCount: topVisitEntry?.[1] ?? 0,
     });
 
     polygonGroupsRef.current.forEach((_, dongCode) => {
@@ -747,7 +776,10 @@ export default function NaverMap() {
       setPhotoLink("");
       // After successful diary insert, increment visited_places.visit_count for this user only.
       try {
-        const nextVisitCount = (visitCountByDongRef.current.get(selectedDong.dongCode) ?? 0) + 1;
+        const nextVisitCount = Math.max(
+          visitCountByDongRef.current.get(selectedDong.dongCode) ?? 0,
+          diaries.length
+        ) + 1;
         const { error: visitError } = await supabase.from("visited_places").upsert(
           {
             user_id: authUser.id,
@@ -1470,7 +1502,7 @@ export default function NaverMap() {
                     선택된 동
                   </p>
                   <h2 className="mt-1 text-xl font-semibold">{selectedDong.dongName}</h2>
-                  <p className="mt-1 text-sm text-slate-300">방문 {selectedDong.visitCount}회</p>
+                  <p className="mt-1 text-sm text-slate-300">방문 {selectedDongVisitCount}회</p>
                 </div>
                 <button
                   type="button"
