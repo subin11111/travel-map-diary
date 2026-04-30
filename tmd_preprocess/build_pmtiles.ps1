@@ -1,6 +1,6 @@
 param(
   [string]$GeoJsonInput = "public/geo/eupmyeondong.geojson",
-  [string]$PmtilesOutput = "public/tiles/eupmyeondong.pmtiles",
+  [string]$PmtilesOutput = "public/tiles/eupmyeondong_z5_z13_detail.pmtiles",
   [string]$LayerName = "eupmyeondong"
 )
 
@@ -29,9 +29,12 @@ Write-Host "Layer:  $LayerName"
 tippecanoe `
   -o $outputPath `
   -l $LayerName `
-  -zg `
-  --drop-densest-as-needed `
-  --extend-zooms-if-still-dropping `
+  -Z5 `
+  -z13 `
+  --no-feature-limit `
+  --no-tile-size-limit `
+  --no-tiny-polygon-reduction `
+  --no-line-simplification `
   --force `
   $inputPath
 

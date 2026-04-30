@@ -124,9 +124,11 @@ type NaverWindow = Window & {
   __setOverlayZoomOffset?: (offset: number) => void;
 };
 
-const EUPMYEONDONG_PMTILES_PATH = "/tiles/eupmyeondong.pmtiles";
+const EUPMYEONDONG_PMTILES_PATH = "/tiles/eupmyeondong_z5_z13_detail.pmtiles";
 const EUPMYEONDONG_SOURCE_ID = "eupmyeondong";
 const EUPMYEONDONG_SOURCE_LAYER = "eupmyeondong";
+const EUPMYEONDONG_SOURCE_MIN_ZOOM = 5;
+const EUPMYEONDONG_SOURCE_MAX_ZOOM = 13;
 const EUPMYEONDONG_FILL_LAYER_ID = "eupmyeondong-fill";
 const EUPMYEONDONG_LINE_LAYER_ID = "eupmyeondong-line";
 const NATIONAL_EUPMYEONDONG_COUNT = 5028;
@@ -1537,7 +1539,7 @@ export default function NaverMap() {
                 status: tileCheck.status,
                 statusText: tileCheck.statusText,
               });
-              setStatusMessage("전국 지도 타일 파일을 불러오지 못했습니다. public/tiles/eupmyeondong.pmtiles 파일을 확인해 주세요.");
+              setStatusMessage("전국 지도 타일 파일을 불러오지 못했습니다. public/tiles/eupmyeondong_z5_z13_detail.pmtiles 파일을 확인해 주세요.");
               return;
             }
 
@@ -1560,7 +1562,7 @@ export default function NaverMap() {
             }
           } catch (error) {
             console.warn("PMTiles availability check failed.", error);
-            setStatusMessage("전국 지도 타일 파일을 불러오지 못했습니다. public/tiles/eupmyeondong.pmtiles 파일을 확인해 주세요.");
+            setStatusMessage("전국 지도 타일 파일을 불러오지 못했습니다. public/tiles/eupmyeondong_z5_z13_detail.pmtiles 파일을 확인해 주세요.");
             return;
           }
 
@@ -1607,8 +1609,8 @@ export default function NaverMap() {
           overlayMap.addSource(EUPMYEONDONG_SOURCE_ID, {
             type: "vector",
             url: `pmtiles://${EUPMYEONDONG_PMTILES_PATH}`,
-            minzoom: 0,
-            maxzoom: 5,
+            minzoom: EUPMYEONDONG_SOURCE_MIN_ZOOM,
+            maxzoom: EUPMYEONDONG_SOURCE_MAX_ZOOM,
             attribution: "NGII eupmyeondong boundaries",
           });
 
@@ -1617,7 +1619,7 @@ export default function NaverMap() {
             type: "fill",
             source: EUPMYEONDONG_SOURCE_ID,
             "source-layer": boundarySourceLayer,
-            minzoom: 0,
+            minzoom: EUPMYEONDONG_SOURCE_MIN_ZOOM,
             maxzoom: 22,
             paint: DEBUG_BOUNDARY_STYLE
               ? getDebugBoundaryFillPaint()
@@ -1632,7 +1634,7 @@ export default function NaverMap() {
             type: "line",
             source: EUPMYEONDONG_SOURCE_ID,
             "source-layer": boundarySourceLayer,
-            minzoom: 0,
+            minzoom: EUPMYEONDONG_SOURCE_MIN_ZOOM,
             maxzoom: 22,
             paint: DEBUG_BOUNDARY_STYLE
               ? getDebugBoundaryLinePaint()
@@ -1688,6 +1690,8 @@ export default function NaverMap() {
             path: EUPMYEONDONG_PMTILES_PATH,
             sourceId: EUPMYEONDONG_SOURCE_ID,
             sourceLayer: boundarySourceLayer,
+            sourceMinZoom: EUPMYEONDONG_SOURCE_MIN_ZOOM,
+            sourceMaxZoom: EUPMYEONDONG_SOURCE_MAX_ZOOM,
             expectedFeatureCount: NATIONAL_EUPMYEONDONG_COUNT,
             visitedCodes: visitCountByDongRef.current.size,
             debugBoundaryStyle: DEBUG_BOUNDARY_STYLE,
