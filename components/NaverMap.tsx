@@ -93,6 +93,7 @@ type NaverMapApi = {
 
 type NaverWindow = Window & {
   naver?: NaverMapApi;
+  __setOverlayZoomOffset?: (offset: number) => void;
 };
 
 const EUPMYEONDONG_PMTILES_PATH = "/tiles/eupmyeondong.pmtiles";
@@ -103,7 +104,12 @@ const EUPMYEONDONG_LINE_LAYER_ID = "eupmyeondong-line";
 const NATIONAL_EUPMYEONDONG_COUNT = 5028;
 const KOREA_CENTER: [number, number] = [127.8, 36.3];
 const NAVER_INITIAL_ZOOM = 7;
-const MAPLIBRE_ZOOM_OFFSET = 0;
+const INITIAL_MAPLIBRE_ZOOM_OFFSET = Number.parseFloat(
+  process.env.NEXT_PUBLIC_MAPLIBRE_ZOOM_OFFSET ?? "-1"
+);
+const DEFAULT_MAPLIBRE_ZOOM_OFFSET = Number.isFinite(INITIAL_MAPLIBRE_ZOOM_OFFSET)
+  ? INITIAL_MAPLIBRE_ZOOM_OFFSET
+  : 0;
 const DEBUG_MAP_MODE = (process.env.NEXT_PUBLIC_DEBUG_MAP_MODE ?? "both") as
   | "naver-only"
   | "overlay-only"
@@ -275,8 +281,8 @@ function getBoundsFromPmtilesMetadata(metadata: unknown) {
   ] as [[number, number], [number, number]];
 }
 
-function naverZoomToMapLibreZoom(naverZoom: number) {
-  return naverZoom + MAPLIBRE_ZOOM_OFFSET;
+function naverZoomToMapLibreZoom(naverZoom: number, offset: number) {
+  return naverZoom + offset;
 }
 
 function formatDateTime(value: string) {
@@ -334,8 +340,8 @@ export default function NaverMap() {
   const mapInitializedRef = useRef(false);
   const naverMapRef = useRef<NaverMapInstance | null>(null);
   const mapLibreMapRef = useRef<MapLibreMap | null>(null);
-  const syncingFromNaverRef = useRef(false);
-  const syncingFromOverlayRef = useRef(false);
+  const mapLibreZoomOffsetRef = useRef(DEFAULT_MAPLIBRE_ZOOM_OFFSET);
+  const mapSyncRafRef = useRef<number | null>(null);
   const visitCountByDongRef = useRef(new Map<string, number>());
   const dongNameByCodeRef = useRef(new Map<string, string>());
   const topStatDongCodesRef = useRef(new Set<string>());
@@ -737,6 +743,7 @@ export default function NaverMap() {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let resizeObserver: ResizeObserver | null = null;
     let removeManualHitTest: (() => void) | null = null;
+    let removeWindowResizeListener: (() => void) | null = null;
 
     function syncMapElementSizes() {
       const rootRect = mapRef.current?.getBoundingClientRect();
@@ -762,6 +769,21 @@ export default function NaverMap() {
       overlayMapElementRef.current.style.visibility = "visible";
       overlayMapElementRef.current.style.width = `${rootRect.width}px`;
       overlayMapElementRef.current.style.height = `${rootRect.height}px`;
+
+      const naverRect = naverMapElementRef.current.getBoundingClientRect();
+      const overlayRect = overlayMapElementRef.current.getBoundingClientRect();
+      const sizeMismatch =
+        Math.abs(naverRect.width - overlayRect.width) > 1 ||
+        Math.abs(naverRect.height - overlayRect.height) > 1;
+
+      if (sizeMismatch) {
+        overlayMapElementRef.current.style.width = `${naverRect.width}px`;
+        overlayMapElementRef.current.style.height = `${naverRect.height}px`;
+        console.warn("[MapSync] overlay size adjusted to Naver container", {
+          naverRect,
+          overlayRect,
+        });
+      }
 
       return rootRect;
     }
@@ -903,7 +925,7 @@ export default function NaverMap() {
             layers: [],
           },
           center: KOREA_CENTER,
-          zoom: naverZoomToMapLibreZoom(NAVER_INITIAL_ZOOM),
+          zoom: naverZoomToMapLibreZoom(NAVER_INITIAL_ZOOM, mapLibreZoomOffsetRef.current),
           minZoom: 4,
           maxZoom: 16,
           interactive: true,
@@ -931,55 +953,74 @@ export default function NaverMap() {
           logOverlayStacking("[MapLibre canvas style after resize]", overlayMap);
         }, 300);
 
-        function syncOverlayFromNaver() {
-          if (syncingFromOverlayRef.current || !mapLibreMapRef.current || !naverMapRef.current) {
+        function syncOverlayToNaverMap(reason = "manual") {
+          if (!mapLibreMapRef.current || !naverMapRef.current) {
             return;
           }
 
-          syncingFromNaverRef.current = true;
+          const sizeRect = syncMapElementSizes();
           const center = naverMapRef.current.getCenter();
-          const naverCenter: [number, number] = [center.lng(), center.lat()];
+          const lat = center.lat();
+          const lng = center.lng();
+          const naverCenter: [number, number] = [lng, lat];
           const naverZoom = naverMapRef.current.getZoom();
+          const offset = mapLibreZoomOffsetRef.current;
+          const mapLibreZoom = naverZoomToMapLibreZoom(naverZoom, offset);
+
+          mapLibreMapRef.current.resize();
           mapLibreMapRef.current.jumpTo({
             center: DEBUG_FIXED_OVERLAY_VIEW ? [126.978, 37.5665] : naverCenter,
-            zoom: DEBUG_FIXED_OVERLAY_VIEW ? 10 : naverZoomToMapLibreZoom(naverZoom),
+            zoom: DEBUG_FIXED_OVERLAY_VIEW ? 10 : mapLibreZoom,
           });
           console.info("[MapSync]", {
-            source: "naver",
-            naverCenter,
+            reason,
+            naverCenter: { lat, lng },
             naverZoom,
+            mapLibreZoom,
+            offset,
+            naverSize: naverMapRef.current.getSize?.(),
+            naverRect: naverMapElementRef.current?.getBoundingClientRect(),
+            overlaySize: sizeRect
+              ? { width: sizeRect.width, height: sizeRect.height }
+              : overlayMapElementRef.current?.getBoundingClientRect(),
             maplibreCenter: mapLibreMapRef.current.getCenter().toArray(),
             maplibreZoom: mapLibreMapRef.current.getZoom(),
           });
-          syncingFromNaverRef.current = false;
         }
 
-        function syncNaverFromOverlay() {
-          if (syncingFromNaverRef.current || !mapLibreMapRef.current || !naverMapRef.current) {
+        function scheduleOverlaySync(reason: string) {
+          if (mapSyncRafRef.current !== null) {
             return;
           }
 
-          syncingFromOverlayRef.current = true;
-          const center = mapLibreMapRef.current.getCenter();
-          const overlayZoom = mapLibreMapRef.current.getZoom();
-          naverMapRef.current.setCenter(new naverApi.maps.LatLng(center.lat, center.lng));
-          naverMapRef.current.setZoom(
-            Math.round(overlayZoom - MAPLIBRE_ZOOM_OFFSET)
-          );
-          console.info("[MapSync]", {
-            source: "overlay",
-            naverCenter: naverMapRef.current.getCenter()?.toString?.(),
-            naverZoom: naverMapRef.current.getZoom(),
-            maplibreCenter: center.toArray(),
-            maplibreZoom: overlayZoom,
+          mapSyncRafRef.current = window.requestAnimationFrame(() => {
+            mapSyncRafRef.current = null;
+            syncOverlayToNaverMap(reason);
           });
-          window.setTimeout(() => {
-            syncingFromOverlayRef.current = false;
-          }, 0);
         }
 
-        naverApi.maps.Event.addListener(naverMap, "idle", syncOverlayFromNaver);
-        overlayMap.on("moveend", syncNaverFromOverlay);
+        ["idle", "bounds_changed", "zoom_changed", "dragend", "resize"].forEach((eventName) => {
+          naverApi.maps.Event.addListener(naverMap, eventName, () => {
+            scheduleOverlaySync(eventName);
+          });
+        });
+
+        (window as NaverWindow).__setOverlayZoomOffset = (offset: number) => {
+          if (!Number.isFinite(offset)) {
+            console.warn("[MapSync] invalid overlay zoom offset", offset);
+            return;
+          }
+
+          mapLibreZoomOffsetRef.current = offset;
+          console.info("[MapSync] overlay zoom offset updated", { offset });
+          syncOverlayToNaverMap("console-offset");
+        };
+
+        const handleWindowResize = () => scheduleOverlaySync("window-resize");
+        window.addEventListener("resize", handleWindowResize);
+        removeWindowResizeListener = () => {
+          window.removeEventListener("resize", handleWindowResize);
+        };
         if (mapRef.current) {
           resizeObserver = new ResizeObserver(() => {
             syncMapElementSizes();
@@ -987,11 +1028,11 @@ export default function NaverMap() {
               naverApi.maps.Event.trigger(naverMapRef.current, "resize");
             }
             mapLibreMapRef.current?.resize();
-            syncOverlayFromNaver();
+            scheduleOverlaySync("resize-observer");
           });
           resizeObserver.observe(mapRef.current);
         }
-        syncOverlayFromNaver();
+        syncOverlayToNaverMap("initial");
 
         overlayMap.on("load", async () => {
           if (cancelled) {
@@ -1022,6 +1063,7 @@ export default function NaverMap() {
 
             console.info("[PMTiles] header", header);
             console.info("[PMTiles] metadata", metadata);
+            console.info("[PMTiles] parsed bounds", metadataBounds);
 
             if (metadataLayerId && metadataLayerId !== EUPMYEONDONG_SOURCE_LAYER) {
               console.warn("[PMTiles] source-layer mismatch; using metadata layer id.", {
@@ -1263,8 +1305,17 @@ export default function NaverMap() {
       if (retryTimer) {
         clearTimeout(retryTimer);
       }
+      if (mapSyncRafRef.current !== null) {
+        cancelAnimationFrame(mapSyncRafRef.current);
+        mapSyncRafRef.current = null;
+      }
       removeManualHitTest?.();
       removeManualHitTest = null;
+      removeWindowResizeListener?.();
+      removeWindowResizeListener = null;
+      if ((window as NaverWindow).__setOverlayZoomOffset) {
+        delete (window as NaverWindow).__setOverlayZoomOffset;
+      }
       resizeObserver?.disconnect();
       mapLibreMapRef.current?.remove();
       mapLibreMapRef.current = null;
