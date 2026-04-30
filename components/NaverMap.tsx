@@ -625,6 +625,39 @@ function getBoundsFromPmtilesMetadata(metadata: unknown) {
   ] as [[number, number], [number, number]];
 }
 
+async function checkPmtilesFileAvailable(path: string) {
+  const headResponse = await fetch(path, { method: "HEAD", cache: "no-store" });
+
+  if (headResponse.ok) {
+    return {
+      ok: true,
+      method: "HEAD",
+      status: headResponse.status,
+      statusText: headResponse.statusText,
+    };
+  }
+
+  console.warn("PMTiles HEAD check failed. Retrying with a small GET request.", {
+    path,
+    status: headResponse.status,
+    statusText: headResponse.statusText,
+  });
+
+  const getResponse = await fetch(path, {
+    cache: "no-store",
+    headers: {
+      Range: "bytes=0-15",
+    },
+  });
+
+  return {
+    ok: getResponse.ok,
+    method: "GET",
+    status: getResponse.status,
+    statusText: getResponse.statusText,
+  };
+}
+
 function naverZoomToMapLibreZoom(naverZoom: number, offset: number) {
   return naverZoom + offset;
 }
@@ -1531,11 +1564,12 @@ export default function NaverMap() {
           let metadataBounds: [[number, number], [number, number]] | null = null;
 
           try {
-            const tileCheck = await fetch(EUPMYEONDONG_PMTILES_PATH, { method: "HEAD" });
+            const tileCheck = await checkPmtilesFileAvailable(EUPMYEONDONG_PMTILES_PATH);
 
             if (!tileCheck.ok) {
               console.warn("PMTiles file is missing or unavailable.", {
                 path: EUPMYEONDONG_PMTILES_PATH,
+                method: tileCheck.method,
                 status: tileCheck.status,
                 statusText: tileCheck.statusText,
               });
