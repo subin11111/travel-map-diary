@@ -37,21 +37,10 @@ export function buildAuthEmailCandidates(handle: string) {
 
 export function buildAuthLoginCandidates(handle: string) {
   const normalizedHandle = normalizeAuthHandle(handle);
-  const candidates: { email: string; provider: AuthEmailProvider }[] = [
+  return [
     {
       email: `${normalizedHandle}@${AUTH_HANDLE_DOMAIN}`,
       provider: "internal",
     },
-  ];
-
-  LEGACY_AUTH_HANDLE_DOMAINS.forEach((domain) => {
-    if (domain !== AUTH_HANDLE_DOMAIN) {
-      candidates.push({
-        email: `${normalizedHandle}@${domain}`,
-        provider: "legacy",
-      });
-    }
-  });
-
-  return candidates;
+  ] satisfies { email: string; provider: AuthEmailProvider }[];
 }
