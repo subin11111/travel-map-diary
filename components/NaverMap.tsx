@@ -122,6 +122,7 @@ type NaverMapApi = {
 type NaverWindow = Window & {
   naver?: NaverMapApi;
   __setOverlayZoomOffset?: (offset: number) => void;
+  __pmtilesProtocolRegistered?: boolean;
 };
 
 const EUPMYEONDONG_PMTILES_PATH = "/tiles/eupmyeondong_z5_z13_detail.pmtiles";
@@ -151,6 +152,9 @@ const DEBUG_MAP_SYNC = process.env.NEXT_PUBLIC_DEBUG_MAP_SYNC === "true";
 const DEBUG_REGION_LABEL = process.env.NEXT_PUBLIC_DEBUG_REGION_LABEL === "true";
 const OVERLAY_MOVING_OPACITY = "0.22";
 const OVERLAY_IDLE_OPACITY = "1";
+const TILE_FILE_CHECK_FAILED_MESSAGE = "PMTiles 파일을 찾지 못했습니다.";
+const TILE_HEADER_FAILED_MESSAGE = "PMTiles 파일을 읽지 못했습니다.";
+const TILE_LAYER_FAILED_MESSAGE = "전국 지도 타일 파일은 확인되었지만, 지도 경계 레이어 초기화에 실패했습니다. 콘솔 로그를 확인해 주세요.";
 
 let isPmtilesProtocolRegistered = false;
 const missingSigunguLogSet = new Set<string>();
@@ -625,8 +629,24 @@ function getBoundsFromPmtilesMetadata(metadata: unknown) {
   ] as [[number, number], [number, number]];
 }
 
-async function checkPmtilesFileAvailable(path: string) {
-  const headResponse = await fetch(path, { method: "HEAD", cache: "no-store" });
+function getPmtilesUrls() {
+  const absoluteUrl = new URL(EUPMYEONDONG_PMTILES_PATH, window.location.origin).toString();
+
+  return {
+    path: EUPMYEONDONG_PMTILES_PATH,
+    absoluteUrl,
+    maplibreUrl: `pmtiles://${absoluteUrl}`,
+  };
+}
+
+async function checkPmtilesFileAvailable(url: string) {
+  const collectHeaders = (response: Response) => ({
+    contentLength: response.headers.get("content-length"),
+    acceptRanges: response.headers.get("accept-ranges"),
+    contentType: response.headers.get("content-type"),
+  });
+
+  const headResponse = await fetch(url, { method: "HEAD", cache: "no-store" });
 
   if (headResponse.ok) {
     return {
@@ -634,16 +654,18 @@ async function checkPmtilesFileAvailable(path: string) {
       method: "HEAD",
       status: headResponse.status,
       statusText: headResponse.statusText,
+      headers: collectHeaders(headResponse),
     };
   }
 
   console.warn("PMTiles HEAD check failed. Retrying with a small GET request.", {
-    path,
+    url,
     status: headResponse.status,
     statusText: headResponse.statusText,
+    headers: collectHeaders(headResponse),
   });
 
-  const getResponse = await fetch(path, {
+  const getResponse = await fetch(url, {
     cache: "no-store",
     headers: {
       Range: "bytes=0-15",
@@ -655,6 +677,7 @@ async function checkPmtilesFileAvailable(path: string) {
     method: "GET",
     status: getResponse.status,
     statusText: getResponse.statusText,
+    headers: collectHeaders(getResponse),
   };
 }
 
@@ -1337,13 +1360,17 @@ export default function NaverMap() {
           return;
         }
 
-        if (!isPmtilesProtocolRegistered) {
+        const naverWindow = window as NaverWindow;
+        if (!isPmtilesProtocolRegistered && !naverWindow.__pmtilesProtocolRegistered) {
           const protocol = new Protocol();
           try {
             maplibregl.addProtocol("pmtiles", protocol.tile);
+            naverWindow.__pmtilesProtocolRegistered = true;
           } catch (error) {
             console.warn("PMTiles protocol registration skipped.", error);
           }
+          isPmtilesProtocolRegistered = true;
+        } else {
           isPmtilesProtocolRegistered = true;
         }
 
@@ -1562,30 +1589,61 @@ export default function NaverMap() {
 
           let boundarySourceLayer = EUPMYEONDONG_SOURCE_LAYER;
           let metadataBounds: [[number, number], [number, number]] | null = null;
+          const pmtilesUrls = getPmtilesUrls();
 
           try {
-            const tileCheck = await checkPmtilesFileAvailable(EUPMYEONDONG_PMTILES_PATH);
+            const tileCheck = await checkPmtilesFileAvailable(pmtilesUrls.absoluteUrl);
+
+            console.info("[PMTiles file-check]", {
+              ...pmtilesUrls,
+              method: tileCheck.method,
+              ok: tileCheck.ok,
+              status: tileCheck.status,
+              statusText: tileCheck.statusText,
+              headers: tileCheck.headers,
+            });
 
             if (!tileCheck.ok) {
               console.warn("PMTiles file is missing or unavailable.", {
-                path: EUPMYEONDONG_PMTILES_PATH,
+                ...pmtilesUrls,
                 method: tileCheck.method,
                 status: tileCheck.status,
                 statusText: tileCheck.statusText,
+                headers: tileCheck.headers,
               });
-              setStatusMessage("전국 지도 타일 파일을 불러오지 못했습니다. public/tiles/eupmyeondong_z5_z13_detail.pmtiles 파일을 확인해 주세요.");
+              setStatusMessage(`${TILE_FILE_CHECK_FAILED_MESSAGE} public${EUPMYEONDONG_PMTILES_PATH} 파일을 확인해 주세요.`);
               return;
             }
+          } catch (error) {
+            console.warn("[PMTiles file-check] failed", {
+              ...pmtilesUrls,
+              error,
+            });
+            setStatusMessage(`${TILE_FILE_CHECK_FAILED_MESSAGE} public${EUPMYEONDONG_PMTILES_PATH} 파일을 확인해 주세요.`);
+            return;
+          }
 
-            const pmtiles = new PMTiles(EUPMYEONDONG_PMTILES_PATH);
+          setStatusMessage((current) =>
+            current?.startsWith("PMTiles 파일") || current?.startsWith("전국 지도 타일")
+              ? null
+              : current
+          );
+
+          try {
+            const pmtiles = new PMTiles(pmtilesUrls.absoluteUrl);
             const header = await pmtiles.getHeader();
             const metadata = await pmtiles.getMetadata();
             const metadataLayerId = getVectorLayerId(metadata);
             metadataBounds = getBoundsFromPmtilesMetadata(metadata);
 
-            console.info("[PMTiles] header", header);
-            console.info("[PMTiles] metadata", metadata);
-            console.info("[PMTiles] parsed bounds", metadataBounds);
+            console.info("[PMTiles] header loaded", {
+              ...pmtilesUrls,
+              header,
+            });
+            console.info("[PMTiles] metadata loaded", {
+              metadata,
+              metadataBounds,
+            });
 
             if (metadataLayerId && metadataLayerId !== EUPMYEONDONG_SOURCE_LAYER) {
               console.warn("[PMTiles] source-layer mismatch; using metadata layer id.", {
@@ -1595,8 +1653,11 @@ export default function NaverMap() {
               boundarySourceLayer = metadataLayerId;
             }
           } catch (error) {
-            console.warn("PMTiles availability check failed.", error);
-            setStatusMessage("전국 지도 타일 파일을 불러오지 못했습니다. public/tiles/eupmyeondong_z5_z13_detail.pmtiles 파일을 확인해 주세요.");
+            console.warn("[PMTiles] header/metadata failed", {
+              ...pmtilesUrls,
+              error,
+            });
+            setStatusMessage(TILE_HEADER_FAILED_MESSAGE);
             return;
           }
 
@@ -1640,44 +1701,72 @@ export default function NaverMap() {
             });
           });
 
-          overlayMap.addSource(EUPMYEONDONG_SOURCE_ID, {
-            type: "vector",
-            url: `pmtiles://${EUPMYEONDONG_PMTILES_PATH}`,
-            minzoom: EUPMYEONDONG_SOURCE_MIN_ZOOM,
-            maxzoom: EUPMYEONDONG_SOURCE_MAX_ZOOM,
-            attribution: "NGII eupmyeondong boundaries",
-          });
+          try {
+            console.info("[PMTiles source]", {
+              ...pmtilesUrls,
+              sourceId: EUPMYEONDONG_SOURCE_ID,
+              sourceLayer: boundarySourceLayer,
+              sourceMinZoom: EUPMYEONDONG_SOURCE_MIN_ZOOM,
+              sourceMaxZoom: EUPMYEONDONG_SOURCE_MAX_ZOOM,
+            });
 
-          overlayMap.addLayer({
-            id: EUPMYEONDONG_FILL_LAYER_ID,
-            type: "fill",
-            source: EUPMYEONDONG_SOURCE_ID,
-            "source-layer": boundarySourceLayer,
-            minzoom: EUPMYEONDONG_SOURCE_MIN_ZOOM,
-            maxzoom: 22,
-            paint: DEBUG_BOUNDARY_STYLE
-              ? getDebugBoundaryFillPaint()
-              : {
-                  "fill-color": getVisitStyle(0).fillColor,
-                  "fill-opacity": getVisitStyle(0).fillOpacity,
-                },
-          });
+            overlayMap.addSource(EUPMYEONDONG_SOURCE_ID, {
+              type: "vector",
+              url: pmtilesUrls.maplibreUrl,
+              minzoom: EUPMYEONDONG_SOURCE_MIN_ZOOM,
+              maxzoom: EUPMYEONDONG_SOURCE_MAX_ZOOM,
+              attribution: "NGII eupmyeondong boundaries",
+            });
 
-          overlayMap.addLayer({
-            id: EUPMYEONDONG_LINE_LAYER_ID,
-            type: "line",
-            source: EUPMYEONDONG_SOURCE_ID,
-            "source-layer": boundarySourceLayer,
-            minzoom: EUPMYEONDONG_SOURCE_MIN_ZOOM,
-            maxzoom: 22,
-            paint: DEBUG_BOUNDARY_STYLE
-              ? getDebugBoundaryLinePaint()
-              : {
-                  "line-color": getVisitStyle(0).strokeColor,
-                  "line-opacity": getVisitStyle(0).strokeOpacity,
-                  "line-width": getVisitStyle(0).strokeWeight,
-                },
-          });
+            overlayMap.addLayer({
+              id: EUPMYEONDONG_FILL_LAYER_ID,
+              type: "fill",
+              source: EUPMYEONDONG_SOURCE_ID,
+              "source-layer": boundarySourceLayer,
+              minzoom: EUPMYEONDONG_SOURCE_MIN_ZOOM,
+              maxzoom: 22,
+              paint: DEBUG_BOUNDARY_STYLE
+                ? getDebugBoundaryFillPaint()
+                : {
+                    "fill-color": getVisitStyle(0).fillColor,
+                    "fill-opacity": getVisitStyle(0).fillOpacity,
+                  },
+            });
+
+            overlayMap.addLayer({
+              id: EUPMYEONDONG_LINE_LAYER_ID,
+              type: "line",
+              source: EUPMYEONDONG_SOURCE_ID,
+              "source-layer": boundarySourceLayer,
+              minzoom: EUPMYEONDONG_SOURCE_MIN_ZOOM,
+              maxzoom: 22,
+              paint: DEBUG_BOUNDARY_STYLE
+                ? getDebugBoundaryLinePaint()
+                : {
+                    "line-color": getVisitStyle(0).strokeColor,
+                    "line-opacity": getVisitStyle(0).strokeOpacity,
+                    "line-width": getVisitStyle(0).strokeWeight,
+                  },
+            });
+          } catch (error) {
+            console.warn("[MapLibre] PMTiles source/layer initialization failed", {
+              ...pmtilesUrls,
+              sourceId: EUPMYEONDONG_SOURCE_ID,
+              sourceLayer: boundarySourceLayer,
+              error,
+            });
+            setStatusMessage(TILE_LAYER_FAILED_MESSAGE);
+            return;
+          }
+
+          setStatusMessage((current) =>
+            current === TILE_HEADER_FAILED_MESSAGE ||
+            current === TILE_LAYER_FAILED_MESSAGE ||
+            current?.startsWith("PMTiles 파일") ||
+            current?.startsWith("전국 지도 타일")
+              ? null
+              : current
+          );
 
           setTotalDongCount(NATIONAL_EUPMYEONDONG_COUNT);
           forceMapLibreDomVisible(overlayMap);
