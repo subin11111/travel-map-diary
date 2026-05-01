@@ -3645,8 +3645,8 @@ export default function NaverMap() {
         </div>
       ) : null}
 
-      <div className="fixed inset-0 mx-auto grid w-full max-w-[1600px] gap-4 px-0 pb-0 pt-[calc(3.5rem+env(safe-area-inset-top))] lg:block">
-        <section className="flex h-full min-h-0 flex-col overflow-hidden bg-white/80 shadow-[0_30px_80px_rgba(15,23,42,0.14)] backdrop-blur">
+      <div className="fixed inset-0 mx-auto grid h-dvh min-h-dvh w-full max-w-[1600px] gap-4 p-0 lg:block">
+        <section className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-white/80 shadow-[0_30px_80px_rgba(15,23,42,0.14)] backdrop-blur">
           <div className="hidden flex-col gap-3 border-b border-slate-200/80 px-4 py-4 sm:px-5 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               <Image
