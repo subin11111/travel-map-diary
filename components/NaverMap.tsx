@@ -2566,6 +2566,7 @@ export default function NaverMap() {
       setStatusMessage("지역 기록과 사진이 저장되었습니다.");
 
       setIsModalOpen(false);
+      setIsDongPanelOpen(true);
     } catch (error) {
       console.error("Failed to save diary:", error);
       if (error instanceof ImageCompressionError) {
@@ -2640,6 +2641,7 @@ export default function NaverMap() {
 
   function closeModal() {
     setIsModalOpen(false);
+    setEditingDiary(null);
     clearPhotoSelection();
     setDiaryTitle("");
     setDiaryContent("");
@@ -2647,7 +2649,29 @@ export default function NaverMap() {
     setPhotoLink("");
   }
 
+  function openDiaryCreate() {
+    if (!selectedDong) {
+      return;
+    }
+
+    setIsDongPanelOpen(false);
+    setEditingDiary(null);
+    setIsModalOpen(true);
+  }
+
+  function closeDongPanel() {
+    const dongCode = selectedDongCodeRef.current;
+    selectedDongCodeRef.current = null;
+    setIsDongPanelOpen(false);
+    setSelectedDong(null);
+    if (dongCode) {
+      restyleDong();
+    }
+  }
+
   function openDiaryEdit(diary: DongDiary) {
+    setIsDongPanelOpen(false);
+    setIsModalOpen(false);
     setEditingDiary(diary);
     setDiaryEditForm({
       title: diary.title ?? "",
@@ -2728,6 +2752,9 @@ export default function NaverMap() {
         )
       );
       closeDiaryEdit();
+      if (selectedDong?.dongCode === updatedDiary.dong_code) {
+        setIsDongPanelOpen(true);
+      }
       setStatusMessage("기록을 수정했습니다.");
     } catch (error) {
       console.error("Failed to update diary:", error);
@@ -2960,13 +2987,23 @@ export default function NaverMap() {
       </header>
 
       {isModalOpen && selectedDong ? (
-        <div className="fixed left-0 top-0 z-50 flex h-full w-full items-center justify-center bg-black/50 p-4">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">{selectedDong.regionLabel}에 지역 기록 추가</h3>
+        <div className="fixed inset-0 z-[80] flex items-end bg-black/50 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:justify-center sm:p-6">
+          <div
+            className="w-full max-w-2xl overflow-y-auto rounded-[28px] bg-white p-5 shadow-2xl sm:max-h-[90vh] sm:p-6"
+            style={{ maxHeight: "calc(100dvh - 1.5rem - env(safe-area-inset-bottom))" }}
+          >
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">
+                  지역 기록 추가
+                </p>
+                <h3 className="mt-1 line-clamp-2 break-keep text-sm font-medium leading-snug text-slate-600">
+                  {selectedDong.regionLabel}
+                </h3>
+              </div>
               <button
                 onClick={closeModal}
-                className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700"
+                className="shrink-0 whitespace-nowrap rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700"
               >
                 닫기
               </button>
@@ -3402,11 +3439,13 @@ export default function NaverMap() {
           >
             <div className="border-b border-white/10 p-4">
               <div className="flex items-start justify-between gap-3">
-                <div>
+                <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-300">
                     선택된 지역
                   </p>
-                  <h2 className="mt-1 text-xl font-semibold">{selectedDong.regionLabel}</h2>
+                  <h2 className="mt-1 line-clamp-2 break-keep text-xl font-semibold leading-snug">
+                    {selectedDong.regionLabel}
+                  </h2>
                   <p className="mt-1 text-xs text-slate-500">
                     emd_code {selectedDong.dongCode}
                     {selectedDong.sigCode ? ` · sig_code ${selectedDong.sigCode}` : ""}
@@ -3415,16 +3454,8 @@ export default function NaverMap() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    const dongCode = selectedDongCodeRef.current;
-                    selectedDongCodeRef.current = null;
-                    setIsDongPanelOpen(false);
-                    setSelectedDong(null);
-                    if (dongCode) {
-                      restyleDong();
-                    }
-                  }}
-                  className="rounded-full bg-white/10 px-3 py-1 text-sm font-medium text-white"
+                  onClick={closeDongPanel}
+                  className="shrink-0 whitespace-nowrap rounded-full bg-white/10 px-3 py-1 text-sm font-medium text-white"
                 >
                   닫기
                 </button>
@@ -3433,7 +3464,7 @@ export default function NaverMap() {
                 {canEditCurrentMap ? (
                   <button
                     type="button"
-                    onClick={() => setIsModalOpen(true)}
+                    onClick={openDiaryCreate}
                     className="rounded-2xl bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950"
                   >
                     기록 추가
@@ -3506,21 +3537,23 @@ export default function NaverMap() {
         <div className="fixed inset-0 z-[80] flex items-end bg-slate-950/50 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:justify-center sm:p-6">
           <form
             onSubmit={handleDiaryUpdate}
-            className="w-full max-w-lg rounded-[28px] border border-white/15 bg-slate-950 p-5 text-white shadow-2xl"
+            className="w-full max-w-lg overflow-y-auto rounded-[28px] border border-white/15 bg-slate-950 p-5 text-white shadow-2xl"
+            style={{ maxHeight: "calc(100dvh - 1.5rem - env(safe-area-inset-bottom))" }}
           >
-            <div className="flex items-start justify-between gap-3">
-              <div>
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-300">
                   기록 수정
                 </p>
-                <h2 className="mt-1 text-xl font-semibold">
+                <h2 className="mt-1 text-xl font-semibold">지역 기록 수정</h2>
+                <p className="mt-1 line-clamp-2 break-keep text-sm font-medium leading-snug text-slate-400">
                   {editingDiary.title ?? editingDiary.dong_name}
-                </h2>
+                </p>
               </div>
               <button
                 type="button"
                 onClick={closeDiaryEdit}
-                className="rounded-full bg-white/10 px-3 py-1 text-sm font-medium text-white"
+                className="shrink-0 whitespace-nowrap rounded-full bg-white/10 px-3 py-1 text-sm font-medium text-white"
               >
                 닫기
               </button>
