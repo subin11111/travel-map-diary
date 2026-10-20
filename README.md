@@ -1,3 +1,13 @@
+<p><img src=".github/assets/repository-hero.svg" width="100%" alt="LIFE MAP DIARY — Everyday places, a map of your own."></p>
+
+**평범한 하루의 장소를 나만의 지도로 쌓습니다.** 전국 읍면동별 일상·사진·기록 횟수를 연결한 개인 지도 서비스입니다. 네이버 지도와 MapLibre·PMTiles 경계를 함께 사용합니다.
+
+<p><a href="https://travel-map-diary.vercel.app"><b>서비스</b></a> &nbsp; / &nbsp; <a href="#주요-기능"><b>주요 기능</b></a> &nbsp; / &nbsp; <a href="#로컬-실행"><b>로컬 실행</b></a> &nbsp; / &nbsp; <a href="supabase/README.md"><b>데이터 설정</b></a></p>
+
+<table><tr><td width="33%" valign="top"><b>RECORD</b><br><sub>장소·사진·날짜별 타임라인</sub></td><td width="33%" valign="top"><b>MAP</b><br><sub>전국 읍면동 경계와 기록 색상</sub></td><td width="33%" valign="top"><b>CONNECT</b><br><sub>지도 공유·계정·일상 통계</sub></td></tr></table>
+
+---
+
 # Life Map Diary
 
 전국 읍면동 단위로 일상 기록과 사진을 남기는 개인 기록 지도입니다. 학교, 산책, 카페, 약속, 공부, 운동처럼 평범한 하루의 장소를 지역별로 쌓아 나만의 생활 지도로 정리할 수 있습니다. 네이버 지도를 배경으로 사용하고, 전국 읍면동 경계는 PMTiles 벡터 타일을 MapLibre GL JS 투명 overlay로 렌더링합니다.
